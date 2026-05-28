@@ -1,0 +1,61 @@
+@import "tailwindcss";
+
+@theme {
+  /* 그린 팔레트 */
+  --color-g1: #1B5E4B;
+  --color-g2: #2D7A5F;
+  --color-g3: #4ECAA0;
+  --color-g4: #A8E6C7;
+  --color-g5: #E8F8F0;
+  
+  /* 텍스트 */
+  --color-txt: #1A1A1A;
+  --color-txt2: #555555;
+  --color-txt3: #999999;
+  
+  /* 배경 */
+  --color-bg-main: #FAFAF7;
+  --color-bg-card: #FFFFFF;
+  
+  /* 테두리 */
+  --color-brd: #E5E5E5;
+  
+  /* 알림 색상 */
+  --color-red: #F08080;
+  --color-orange: #FFA500;
+  --color-yellow: #FFD700;
+  --color-blue: #4A90E2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  background: var(--color-bg-main);
+  color: var(--color-txt);
+  font-family: -apple-system, BlinkMacSystemFont, "Pretendard",
+               "Apple SD Gothic Neo", sans-serif;
+  letter-spacing: -0.3px;
+  margin: 0;
+  padding: 0;
+}
+
+.phone-frame {
+  max-width: 420px;
+  margin: 0 auto;
+  min-height: 100vh;
+  background: var(--color-bg-main);
+  position: relative;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
