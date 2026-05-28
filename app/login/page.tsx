@@ -14,22 +14,18 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const handleLogin = async () => {
-    setError("");
-    
-    // 간단한 검증
-    if (!email || !password) {
-      setError("이메일과 비밀번호를 입력해주세요");
-      return;
-    }
-    
-    setLoading(true);
-    
-    // TODO: Supabase 연결은 다음 단계에서
-    // 일단 임시로 1초 후 홈으로 이동
-    setTimeout(() => {
-      alert("로그인 기능은 Supabase 연결 후 작동해요!\n이메일: " + email);
-      setLoading(false);
-    }, 1000);
+  setError("");
+  
+  if (!email || !password) {
+    setError("이메일과 비밀번호를 입력해주세요");
+    return;
+  }
+  
+  setLoading(true);
+  
+  setTimeout(() => {
+    router.push("/home");
+    }, 500);
   };
 
   return (
