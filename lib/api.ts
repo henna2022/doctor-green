@@ -4,7 +4,7 @@
 
 // 기존 server.js의 Vercel URL
 // TODO: 본인 URL로 교체!
-const API_BASE = "https://doctor-green-server.vercel.app";
+const API_BASE = "";
 
 // ━━━ 타입 정의 ━━━
 
@@ -74,6 +74,27 @@ export async function fetchNearbyPests(
     return await res.json();
   } catch (e) {
     console.error("Farmmap error:", e);
+    return [];
+  }
+}
+
+// ━━━ NCPMS 병해충 예찰 ━━━
+export interface PestForecast {
+  crop: string;
+  name: string;       // 병해충 이름
+  level: string;      // 발생 수준/경보
+  period: string;     // 발생 시기
+}
+
+// 작물별 병해충 예찰 정보 가져오기
+export async function fetchPestForecast(crops: string[]): Promise<PestForecast[]> {
+  if (!crops || crops.length === 0) return [];
+  try {
+    const res = await fetch(`${API_BASE}/api/ncpms?crops=${encodeURIComponent(crops.join(","))}`);
+    if (!res.ok) return [];
+    return await res.json();
+  } catch (e) {
+    console.error("NCPMS error:", e);
     return [];
   }
 }

@@ -5,6 +5,15 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
 import { getCurrentUser, signOut } from "@/lib/auth";
+import {
+  fetchWeather,
+  fetchLocationName,
+  fetchNearbyPests,
+  fetchPestForecast,
+  weatherEmoji,
+  WeatherData,
+} from "@/lib/api";
+import { generateAlerts, Alert } from "@/lib/alerts";
 
 const DODAM_MENU = [
   { href: "/dodam/disease", emoji: "🌿", label: "질병 도감", color: "#E8F8F0" },
@@ -15,24 +24,65 @@ const DODAM_MENU = [
 
 export default function HomePage() {
   const router = useRouter();
+
   const [userName, setUserName] = useState("");
-  const [region, setRegion] = useState("");
+  const [userCrops, setUserCrops] = useState<string[]>([]);
+  const [locationName, setLocationName] = useState("위치 불러오는 중...");
+  const [weather, setWeather] = useState<WeatherData | null>(null);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
+  const [loadingData, setLoadingData] = useState(true);
 
   useEffect(() => {
     async function loadUser() {
       const user = await getCurrentUser();
       if (!user) {
-        // 로그인 안 했으면 웰컴으로 보냄
         router.push("/");
         return;
       }
       setUserName(user.profile?.name || "농부");
-      setRegion(user.profile?.farm_region || "");
+      setUserCrops(user.profile?.farm_crops || []);
       setLoading(false);
     }
     loadUser();
   }, [router]);
+
+  useEffect(() => {
+    if (loading) return;
+
+    if (!navigator.geolocation) {
+      setLocationName("위치 정보 사용 불가");
+      setLoadingData(false);
+      return;
+    }
+
+    navigator.geolocation.getCurrentPosition(
+      async (pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+
+        const [name, weatherData, pests, forecasts] = await Promise.all([
+          fetchLocationName(lat, lon),
+          fetchWeather(lat, lon),
+          fetchNearbyPests(lat, lon),
+          userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
+        ]);
+
+        setLocationName(name);
+        setWeather(weatherData);
+        setAlerts(
+          generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
+        );
+        setLoadingData(false);
+      },
+      (err) => {
+        console.warn("Location denied:", err);
+        setLocationName("위치 권한 필요");
+        setLoadingData(false);
+      },
+      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+    );
+  }, [loading, userCrops]);
 
   const handleLogout = async () => {
     await signOut();
@@ -53,7 +103,19 @@ export default function HomePage() {
         <div className="flex items-center gap-2 mb-1">
           <span className="text-lg">📍</span>
           <div className="flex-1">
-            <p className="text-sm font-bold">{region || "지역 미설정"}</p>
+            <p className="text-sm font-bold">{locationName}</p>
+            {loadingData ? (
+              <p className="text-xs text-txt3">날씨 정보 불러오는 중...</p>
+            ) : weather ? (
+              <p className="text-xs text-txt2">
+                {weatherEmoji(weather.sky, weather.pty)} {weather.temp}°C
+                {weather.tmax !== null && weather.tmin !== null &&
+                  ` (${weather.tmin}° / ${weather.tmax}°)`}
+                {weather.hum !== null && ` · 습도 ${weather.hum}%`}
+              </p>
+            ) : (
+              <p className="text-xs text-txt3">날씨 정보 없음</p>
+            )}
           </div>
           <button onClick={handleLogout} className="text-xs text-txt3 underline">
             로그아웃
@@ -65,19 +127,49 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 px-5 py-5 pb-2">
+        {/* 오늘의 알림 - 제목만, 클릭 시 상세페이지 */}
         <section className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-base font-extrabold">🔔 오늘의 알림</h2>
-            <Link href="/notify" className="text-xs text-g2">전체보기 ›</Link>
+            {!loadingData && alerts.length > 0 && (
+              <Link href="/notify" className="text-xs text-g2">
+                전체보기 ›
+              </Link>
+            )}
           </div>
+
           <div className="flex flex-col gap-2">
-            <AlertCard
-              kind="safe"
-              badge="안내"
-              title="병해충 발생 없음"
-              description="현재 지역 내 주요 병해충 발생 보고가 없습니다."
-              source="농촌진흥청"
-            />
+            {loadingData ? (
+              <div className="p-4 rounded-2xl bg-bg-card border border-brd text-center">
+                <p className="text-sm text-txt3">알림을 불러오는 중...</p>
+              </div>
+            ) : alerts.length > 0 ? (
+              alerts.slice(0, 3).map((a, i) => (
+                <Link
+                  key={i}
+                  href={`/notify?focus=${i}`}
+                  className={`p-3.5 rounded-2xl border-l-4 flex items-center justify-between gap-2 ${
+                    a.kind === "warn" ? "bg-orange/5 border-orange" : "bg-g5 border-g3"
+                  }`}
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span
+                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                        a.kind === "warn" ? "bg-orange text-white" : "bg-g3 text-white"
+                      }`}
+                    >
+                      {a.badge}
+                    </span>
+                    <span className="text-sm font-bold truncate">{a.title}</span>
+                  </div>
+                  <span className="text-txt3 shrink-0">›</span>
+                </Link>
+              ))
+            ) : (
+              <div className="p-4 rounded-2xl bg-g5 text-center">
+                <p className="text-sm text-g1 font-medium">현재 특이 알림이 없습니다 ✅</p>
+              </div>
+            )}
           </div>
         </section>
 
@@ -115,30 +207,6 @@ export default function HomePage() {
       </main>
 
       <BottomNav />
-    </div>
-  );
-}
-
-interface AlertCardProps {
-  kind: "warn" | "safe";
-  badge: string;
-  title: string;
-  description: string;
-  source: string;
-}
-
-function AlertCard({ kind, badge, title, description, source }: AlertCardProps) {
-  const isWarn = kind === "warn";
-  return (
-    <div className={`p-3.5 rounded-2xl border-l-4 ${isWarn ? "bg-orange/5 border-orange" : "bg-g5 border-g3"}`}>
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${isWarn ? "bg-orange text-white" : "bg-g3 text-white"}`}>
-          {badge}
-        </span>
-        <span className="text-xs text-txt3">{source}</span>
-      </div>
-      <h3 className="text-sm font-bold mb-0.5">{title}</h3>
-      <p className="text-xs text-txt2 leading-relaxed">{description}</p>
     </div>
   );
 }

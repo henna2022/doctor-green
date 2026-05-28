@@ -2,35 +2,35 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Home, ScanLine, Leaf, LayoutGrid } from "lucide-react";
 
-// 탭 정의
 const TABS = [
-  { href: "/home", icon: "🏠", label: "홈" },
-  { href: "/diagnose", icon: "📷", label: "진단" },
-  { href: "/crops", icon: "🌱", label: "작물 관리" },
-  { href: "/mypage", icon: "👤", label: "마이 페이지" },
+  { href: "/home", Icon: Home, label: "홈" },
+  { href: "/diagnose", Icon: ScanLine, label: "진단" },
+  { href: "/crops", Icon: Leaf, label: "작물 관리" },
+  { href: "/mypage", Icon: LayoutGrid, label: "마이 페이지" },
 ];
 
 export default function BottomNav() {
   const pathname = usePathname();
 
   return (
-    <nav className="sticky bottom-0 left-0 right-0 bg-bg-card border-t border-brd
-                    flex justify-around items-center py-2 px-2 z-20">
-      {TABS.map((tab) => {
-        // 현재 경로와 일치하면 활성화 스타일
-        const isActive = pathname === tab.href || pathname.startsWith(tab.href + "/");
-        
+    <nav
+      className="flex flex-shrink-0 pt-2.5 pb-4 px-0"
+      style={{ background: "var(--color-g1)" }}
+    >
+      {TABS.map(({ href, Icon, label }) => {
+        const isActive = pathname === href || pathname.startsWith(href + "/");
         return (
           <Link
-            key={tab.href}
-            href={tab.href}
-            className={`flex flex-col items-center gap-0.5 py-1.5 px-3 rounded-lg
-                        transition ${isActive ? "text-g1" : "text-txt3"}`}
+            key={href}
+            href={href}
+            className="flex-1 flex flex-col items-center gap-[3px] py-0.5 transition-colors"
+            style={{ color: isActive ? "#fff" : "rgba(255,255,255,.5)" }}
           >
-            <span className="text-xl">{tab.icon}</span>
+            <Icon size={22} strokeWidth={2} />
             <span className={`text-[10px] ${isActive ? "font-bold" : ""}`}>
-              {tab.label}
+              {label}
             </span>
           </Link>
         );
