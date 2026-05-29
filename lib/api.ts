@@ -14,7 +14,7 @@ export interface WeatherData {
   hum: number | null;
   humMax: number | null;        // 🆕 오늘 최대 습도
   humMin: number | null;        // 🆕 오늘 최저 습도
-  humPeakTime: string | null;   // 🆕 최대 습도 시각
+  humPeakTime: string | null;   // 🆕 최대 습도 시각 (예: "05시")
   sky: number | null;
   pty: number | null;
   wind: number;

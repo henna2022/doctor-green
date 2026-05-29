@@ -15,6 +15,7 @@ interface GenerateParams {
   cityName: string;
 }
 
+// 실제 API 데이터만으로 알림 생성
 export function generateAlerts({ weather, ncpms, farmmap, cityName }: GenerateParams): Alert[] {
   const alerts: Alert[] = [];
 
@@ -70,7 +71,7 @@ export function generateAlerts({ weather, ncpms, farmmap, cityName }: GeneratePa
       });
     }
 
-    // ━━━ 강풍 (현재 또는 오늘 최대) ━━━
+    // 강풍 (오늘 최대 풍속 기준)
     const peakWind = windMax || wind;
     if (peakWind != null && peakWind >= 10) {
       alerts.push({
@@ -79,15 +80,15 @@ export function generateAlerts({ weather, ncpms, farmmap, cityName }: GeneratePa
       });
     }
 
-    // ━━━ 다습 알림 (개선!) ━━━
-    // 1) 현재 습도가 이미 85% 이상이면 즉시 경보
+    // ━━━ 다습 알림 (개선판) ━━━
+    // 1) 현재 이미 85% 이상 → 즉시 경보
     if (humNow != null && humNow >= 85) {
       alerts.push({
         kind: "warn", badge: "경보", sub: `다습 (${Math.round(humNow)}%)`, title: "곰팡이병 위험 ↑",
         desc: `현재 습도 ${Math.round(humNow)}%로 매우 높습니다. 통풍을 강화하고 곰팡이성 병해를 주의하세요.`,
       });
     }
-    // 2) 오늘 중 최대 습도가 85% 이상 (현재는 낮아도)
+    // 2) 오늘 중 최대 85% 이상 (지금은 낮아도)
     else if (humMax != null && humMax >= 85) {
       const timeText = humPeak ? `${humPeak}경` : "오늘 중";
       alerts.push({

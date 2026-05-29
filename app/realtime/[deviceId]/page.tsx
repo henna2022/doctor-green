@@ -24,8 +24,8 @@ import {
   CartesianGrid,
 } from "recharts";
 
-const POLL_INTERVAL = 5000; // 5초마다 센서 갱신
-const LOG_INTERVAL = 60000; // 1분마다 DB 저장
+const POLL_INTERVAL = 5000;
+const LOG_INTERVAL = 60000;
 
 export default function DeviceDetailPage() {
   const router = useRouter();
@@ -40,14 +40,19 @@ export default function DeviceDetailPage() {
   const [activeTab, setActiveTab] = useState<"live" | "history">("live");
   const [busy, setBusy] = useState(false);
 
+  // ━━━ USB 카메라 ━━━
+  const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
+  const [selectedCameraId, setSelectedCameraId] = useState<string>("");
+  const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
+  const [cameraError, setCameraError] = useState<string>("");
+  const videoRef = useRef<HTMLVideoElement>(null);
+
   const lastLogRef = useRef<number>(0);
 
-  // 데이터 로드 함수
+  // 센서 폴링
   const poll = useCallback(async () => {
     const r = await readSensors(deviceId);
     setReading(r);
-
-    // 일정 주기로 DB에 저장
     const now = Date.now();
     if (r.ok && now - lastLogRef.current > LOG_INTERVAL) {
       lastLogRef.current = now;
@@ -77,14 +82,79 @@ export default function DeviceDetailPage() {
     return () => clearInterval(interval);
   }, [deviceId, router, poll]);
 
-  // 이력 탭 열 때 다시 불러오기
+  // ━━━ USB 카메라: 디바이스 목록 가져오기 ━━━
+  useEffect(() => {
+    if (!device || device.camera_type !== "usb") return;
+
+    async function loadCameras() {
+      try {
+        // 권한 먼저 요청 (이거 없으면 라벨이 안 보임)
+        await navigator.mediaDevices.getUserMedia({ video: true }).then((s) => {
+          s.getTracks().forEach((t) => t.stop()); // 일단 끄고 디바이스만 받기
+        });
+
+        const allDevices = await navigator.mediaDevices.enumerateDevices();
+        const cameras = allDevices.filter((d) => d.kind === "videoinput");
+        setCameraDevices(cameras);
+
+        if (cameras.length > 0 && !selectedCameraId) {
+          setSelectedCameraId(cameras[0].deviceId);
+        }
+      } catch (e) {
+        console.error("Camera enumerate error:", e);
+        setCameraError("카메라 권한이 거부되었거나 카메라가 연결되지 않았어요.");
+      }
+    }
+    loadCameras();
+  }, [device, selectedCameraId]);
+
+  // ━━━ USB 카메라: 선택된 카메라 스트림 시작 ━━━
+  useEffect(() => {
+    if (!device || device.camera_type !== "usb" || !selectedCameraId) return;
+
+    let stream: MediaStream | null = null;
+
+    async function startStream() {
+      try {
+        // 기존 스트림 정리
+        if (cameraStream) {
+          cameraStream.getTracks().forEach((t) => t.stop());
+        }
+        stream = await navigator.mediaDevices.getUserMedia({
+          video: {
+            deviceId: { exact: selectedCameraId },
+            width: { ideal: 1280 },
+            height: { ideal: 720 },
+          },
+        });
+        setCameraStream(stream);
+        setCameraError("");
+      } catch (e) {
+        console.error("Camera start error:", e);
+        setCameraError("카메라를 시작할 수 없어요. 다른 카메라를 선택해보세요.");
+      }
+    }
+    startStream();
+
+    return () => {
+      if (stream) stream.getTracks().forEach((t) => t.stop());
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCameraId, device]);
+
+  // ━━━ 비디오 엘리먼트에 스트림 연결 ━━━
+  useEffect(() => {
+    if (videoRef.current && cameraStream) {
+      videoRef.current.srcObject = cameraStream;
+    }
+  }, [cameraStream]);
+
   useEffect(() => {
     if (activeTab === "history") {
       getSensorLogs(deviceId, 30).then(setLogs);
     }
   }, [activeTab, deviceId]);
 
-  // LED/FAN 제어
   const handleToggle = async (pin: "led" | "fan") => {
     if (!reading) return;
     setBusy(true);
@@ -93,7 +163,6 @@ export default function DeviceDetailPage() {
     if (res.error) {
       alert("제어 실패: " + res.error);
     } else {
-      // 낙관적 업데이트
       setReading({
         ...reading,
         [pin === "led" ? "ledOn" : "fanOn"]: newVal,
@@ -102,31 +171,48 @@ export default function DeviceDetailPage() {
     setBusy(false);
   };
 
-  // 📸 스냅샷 → 진단 페이지로
+  // 📸 스냅샷 → 진단 페이지
   const handleSnapshot = () => {
-    const img = document.getElementById("camera-img") as HTMLImageElement | null;
-    if (!img || !device?.camera_url) {
-      alert("카메라가 연결되어 있지 않아요!");
-      return;
-    }
     try {
       const canvas = document.createElement("canvas");
-      canvas.width = img.naturalWidth || 640;
-      canvas.height = img.naturalHeight || 480;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("canvas error");
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      let dataUrl: string;
+
+      if (device?.camera_type === "usb" && videoRef.current && cameraStream) {
+        // USB 웹캠: <video>에서 캡처
+        const video = videoRef.current;
+        canvas.width = video.videoWidth || 1280;
+        canvas.height = video.videoHeight || 720;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas error");
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      } else if (device?.camera_type === "mjpeg" && device.camera_url) {
+        // MJPEG: <img>에서 캡처
+        const img = document.getElementById("camera-img") as HTMLImageElement | null;
+        if (!img) {
+          alert("카메라를 찾을 수 없어요!");
+          return;
+        }
+        canvas.width = img.naturalWidth || 640;
+        canvas.height = img.naturalHeight || 480;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("canvas error");
+        ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+        dataUrl = canvas.toDataURL("image/jpeg", 0.9);
+      } else {
+        alert("카메라가 연결되어 있지 않아요!");
+        return;
+      }
+
       sessionStorage.setItem("diagnose_image", dataUrl);
       sessionStorage.setItem("diagnose_crop", crop?.crop_name || "미지정");
       router.push("/diagnose/result");
     } catch (e) {
       console.error(e);
-      alert("스냅샷 실패: CORS 정책 또는 카메라 응답 문제일 수 있어요.");
+      alert("스냅샷 실패: 카메라 상태를 확인해주세요.");
     }
   };
 
-  // AI 평가 (간단 룰 기반)
   const aiAdvice = (r: SensorReading | null, cropName?: string): string => {
     if (!r || !r.ok) return "센서 데이터를 기다리는 중입니다.";
     const tips: string[] = [];
@@ -142,8 +228,7 @@ export default function DeviceDetailPage() {
       if (r.soil < 40) tips.push(`🚰 토양 건조(${r.soil}%) — 급수 필요`);
       else if (r.soil > 85) tips.push(`⚠️ 토양 과습(${r.soil}%) — 급수 중단`);
     }
-    if (tips.length === 0)
-      return `${cropName || "작물"} 환경이 양호합니다 ✅`;
+    if (tips.length === 0) return `${cropName || "작물"} 환경이 양호합니다 ✅`;
     return tips.join("\n");
   };
 
@@ -157,7 +242,6 @@ export default function DeviceDetailPage() {
 
   const isDemo = device.blynk_token === "DEMO";
 
-  // 차트용 데이터 가공
   const chartData = logs.map((l) => ({
     time: new Date(l.measured_at).toLocaleTimeString("ko-KR", {
       hour: "2-digit",
@@ -167,6 +251,9 @@ export default function DeviceDetailPage() {
     hum: l.hum,
     soil: l.soil,
   }));
+
+  // 카메라 사용 가능 여부
+  const hasCamera = device.camera_type === "usb" || (device.camera_type === "mjpeg" && device.camera_url);
 
   return (
     <div className="phone-frame overflow-y-auto">
@@ -183,7 +270,6 @@ export default function DeviceDetailPage() {
         <div className="w-6" />
       </header>
 
-      {/* 탭 */}
       <div className="flex border-b border-brd bg-bg-card flex-shrink-0">
         <button
           onClick={() => setActiveTab("live")}
@@ -206,10 +292,59 @@ export default function DeviceDetailPage() {
       <main className="flex-1 px-5 py-5 pb-2">
         {activeTab === "live" && (
           <>
-            {/* 📹 카메라 영역 */}
+            {/* 카메라 영역 */}
             <section className="mb-5">
+              {/* USB 카메라일 때: 카메라 선택 드롭다운 */}
+              {device.camera_type === "usb" && cameraDevices.length > 1 && (
+                <select
+                  value={selectedCameraId}
+                  onChange={(e) => setSelectedCameraId(e.target.value)}
+                  className="w-full mb-2 px-3 py-2 border-2 border-brd rounded-xl text-sm bg-bg-card outline-none"
+                >
+                  {cameraDevices.map((cam) => (
+                    <option key={cam.deviceId} value={cam.deviceId}>
+                      {cam.label || `카메라 ${cam.deviceId.slice(0, 8)}`}
+                    </option>
+                  ))}
+                </select>
+              )}
+
               <div className="relative rounded-2xl overflow-hidden bg-black aspect-video">
-                {device.camera_url ? (
+                {/* USB 웹캠 */}
+                {device.camera_type === "usb" && cameraStream && (
+                  <>
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
+                    <div className="absolute top-2 left-2 px-2 py-1 rounded-md bg-black/60 text-white text-[10px] flex items-center gap-1">
+                      <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" />
+                      LIVE (USB)
+                    </div>
+                  </>
+                )}
+
+                {/* USB 에러 */}
+                {device.camera_type === "usb" && cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 px-4 text-center">
+                    <div className="text-4xl mb-2">⚠️</div>
+                    <p className="text-xs">{cameraError}</p>
+                  </div>
+                )}
+
+                {/* USB 로딩 */}
+                {device.camera_type === "usb" && !cameraStream && !cameraError && (
+                  <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
+                    <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-2" />
+                    <p className="text-xs">카메라 연결 중...</p>
+                  </div>
+                )}
+
+                {/* MJPEG 네트워크 카메라 */}
+                {device.camera_type === "mjpeg" && device.camera_url && (
                   <>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img
@@ -218,40 +353,39 @@ export default function DeviceDetailPage() {
                       alt="카메라"
                       crossOrigin="anonymous"
                       className="w-full h-full object-cover"
-                      onError={(e) => {
-                        (e.target as HTMLImageElement).style.display = "none";
-                      }}
                     />
                     <div className="absolute top-2 left-2 px-2 py-1 rounded-md bg-black/60 text-white text-[10px] flex items-center gap-1">
                       <span className="w-1.5 h-1.5 rounded-full bg-red animate-pulse" />
                       LIVE
                     </div>
                   </>
-                ) : (
+                )}
+
+                {/* 카메라 미사용 */}
+                {device.camera_type === "none" && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
                     <div className="text-4xl mb-2">📷</div>
                     <p className="text-xs">카메라 미연결</p>
                   </div>
                 )}
               </div>
-              {/* 📸 스냅샷 → AI 진단 버튼 */}
+
+              {/* 스냅샷 버튼 */}
               <button
                 onClick={handleSnapshot}
-                disabled={!device.camera_url}
+                disabled={!hasCamera || (device.camera_type === "usb" && !cameraStream)}
                 className="w-full mt-2 py-3 rounded-2xl bg-g1 text-white font-bold disabled:opacity-40 transition flex items-center justify-center gap-2"
               >
                 📸 스냅샷 → AI 진단
               </button>
             </section>
 
-            {/* 🌡️ 센서 카드 3개 */}
             <div className="grid grid-cols-3 gap-2 mb-4">
               <SensorCard label="온도" icon="🌡️" value={reading?.temp} unit="°C" color="#F08080" />
               <SensorCard label="습도" icon="💧" value={reading?.hum} unit="%" color="#4A90E2" />
               <SensorCard label="토양수분" icon="🌱" value={reading?.soil} unit="%" color="#4ECAA0" />
             </div>
 
-            {/* 💡 제어 패널 */}
             <section className="mb-5">
               <h3 className="text-sm font-bold mb-2">제어</h3>
               <div className="grid grid-cols-2 gap-2">
@@ -272,7 +406,6 @@ export default function DeviceDetailPage() {
               </div>
             </section>
 
-            {/* 🤖 AI 평가 */}
             <section className="mb-5 p-4 rounded-2xl bg-g5">
               <h3 className="text-sm font-bold text-g1 mb-2">🤖 AI 작물 상태 평가</h3>
               <p className="text-sm text-txt whitespace-pre-line leading-relaxed">
@@ -328,7 +461,6 @@ export default function DeviceDetailPage() {
   );
 }
 
-// ━━━ 센서 카드 ━━━
 function SensorCard({
   label, icon, value, unit, color,
 }: { label: string; icon: string; value: number | null | undefined; unit: string; color: string }) {
@@ -344,7 +476,6 @@ function SensorCard({
   );
 }
 
-// ━━━ 제어 버튼 ━━━
 function ControlButton({
   label, icon, on, onClick, disabled,
 }: { label: string; icon: string; on: boolean; onClick: () => void; disabled: boolean }) {
@@ -365,7 +496,6 @@ function ControlButton({
   );
 }
 
-// ━━━ 미니 차트 ━━━
 function MiniChart({
   data, dataKey, name, color,
 }: { data: { time: string; [k: string]: string | number | null }[]; dataKey: string; name: string; color: string }) {

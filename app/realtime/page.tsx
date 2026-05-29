@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getMyDevices, addDevice, deleteDevice, Device } from "@/lib/sensors";
 import { getMyCrops, MyCrop } from "@/lib/crops";
 
+
 export default function RealtimePage() {
   const router = useRouter();
   const [devices, setDevices] = useState<Device[]>([]);
@@ -20,6 +21,9 @@ export default function RealtimePage() {
   const [blynkToken, setBlynkToken] = useState("DEMO");
   const [cameraUrl, setCameraUrl] = useState("");
   const [saving, setSaving] = useState(false);
+  const [cameraType, setCameraType] = useState<"none" | "usb" | "mjpeg">("none");
+
+  
 
   useEffect(() => {
     async function load() {
@@ -46,13 +50,14 @@ export default function RealtimePage() {
       name: name.trim(),
       cropId: cropId || null,
       blynkToken: blynkToken.trim() || "DEMO",
-      cameraUrl: cameraUrl.trim() || undefined,
+      cameraUrl: cameraType === "mjpeg" ? cameraUrl.trim() : undefined,
+      cameraType: cameraType,
     });
     if (res.error) {
       alert("저장 실패: " + res.error);
     } else {
       setDevices(await getMyDevices());
-      setName(""); setCropId(""); setBlynkToken("DEMO"); setCameraUrl("");
+      setName(""); setCropId(""); setBlynkToken("DEMO"); setCameraUrl(""); setCameraType("none");
       setShowAdd(false);
     }
     setSaving(false);
@@ -178,15 +183,68 @@ export default function RealtimePage() {
                 className="w-full px-3.5 py-3 border-2 border-brd rounded-xl text-sm bg-bg-card focus:border-g3 outline-none transition mb-4 font-mono"
               />
 
-              <label className="block text-sm font-bold mb-1">카메라 URL (선택)</label>
-              <p className="text-xs text-txt3 mb-2">MJPEG 스트림 또는 정적 이미지 URL</p>
-              <input
-                type="text"
-                value={cameraUrl}
-                onChange={(e) => setCameraUrl(e.target.value)}
-                placeholder="http://192.168.0.10:81/stream"
-                className="w-full px-3.5 py-3 border-2 border-brd rounded-xl text-sm bg-bg-card focus:border-g3 outline-none transition mb-5 font-mono"
-              />
+              {/* 카메라 타입 선택 */}
+              <label className="block text-sm font-bold mb-2">📷 카메라</label>
+              <div className="grid grid-cols-3 gap-1.5 mb-3">
+                <button
+                  type="button"
+                  onClick={() => setCameraType("none")}
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                    cameraType === "none"
+                      ? "bg-g5 border-g3 text-g1"
+                      : "border-brd text-txt2 bg-bg-card"
+                  }`}
+                >
+                  없음
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCameraType("usb")}
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                    cameraType === "usb"
+                      ? "bg-g5 border-g3 text-g1"
+                      : "border-brd text-txt2 bg-bg-card"
+                  }`}
+                >
+                  🔌 USB 웹캠
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCameraType("mjpeg")}
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                    cameraType === "mjpeg"
+                      ? "bg-g5 border-g3 text-g1"
+                      : "border-brd text-txt2 bg-bg-card"
+                  }`}
+                >
+                  📡 네트워크
+                </button>
+              </div>
+
+              {/* USB 안내 */}
+              {cameraType === "usb" && (
+                <div className="mb-5 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed">
+                  💡 PC에 NC-150 같은 USB 웹캠을 연결하면 디바이스 상세 페이지에서 자동으로 인식돼요. 추가 설정 없이 바로 사용 가능!
+                </div>
+              )}
+
+              {/* MJPEG URL 입력 (네트워크 카메라일 때만) */}
+              {cameraType === "mjpeg" && (
+                <>
+                  <p className="text-xs text-txt3 mb-2">MJPEG 스트림 URL을 입력하세요</p>
+                  <input
+                    type="text"
+                    value={cameraUrl}
+                    onChange={(e) => setCameraUrl(e.target.value)}
+                    placeholder="http://192.168.0.10:81/stream"
+                    className="w-full px-3.5 py-3 border-2 border-brd rounded-xl text-sm bg-bg-card focus:border-g3 outline-none transition mb-5 font-mono"
+                  />
+                </>
+              )}
+
+              {cameraType === "none" && (
+                <div className="mb-5" />
+              )}
 
               <button
                 onClick={handleAdd}
