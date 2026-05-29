@@ -138,6 +138,12 @@ export default function DiagnoseResultPage() {
                 {severityInfo.label}
               </span>
               <h2 className="text-2xl font-extrabold mt-2">{result.diseaseName}</h2>
+              <Link
+                href={`/dodam/disease?keyword=${encodeURIComponent(result.diseaseName)}`}
+                className="inline-block mt-1 text-xs text-g2 underline"
+              >
+                도감에서 자세히 보기 ›
+              </Link>
               <p className="text-sm text-txt2">{result.cropName}</p>
             </div>
             <div className="text-right">

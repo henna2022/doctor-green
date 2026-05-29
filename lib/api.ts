@@ -10,15 +10,19 @@ const API_BASE = "";
 
 export interface WeatherData {
   source: string;
-  temp: number | null;       // 현재 기온
-  hum: number | null;        // 습도
-  sky: number | null;        // 하늘 상태 (1=맑음, 3=구름많음, 4=흐림)
-  pty: number | null;        // 강수 형태
-  wind: number;              // 풍속
-  tmax: number | null;       // 최고기온
-  tmin: number | null;       // 최저기온
-  rain: number;              // 강수량
-  pop: number;               // 강수확률
+  temp: number | null;
+  hum: number | null;
+  humMax: number | null;        // 🆕 오늘 최대 습도
+  humMin: number | null;        // 🆕 오늘 최저 습도
+  humPeakTime: string | null;   // 🆕 최대 습도 시각
+  sky: number | null;
+  pty: number | null;
+  wind: number;
+  windMax: number;              // 🆕 오늘 최대 풍속
+  tmax: number | null;
+  tmin: number | null;
+  rain: number;
+  pop: number;
 }
 
 export interface PestAlert {

@@ -86,3 +86,26 @@ export async function toggleFavorite(id: string, current: boolean) {
   if (error) return { error: error.message };
   return { error: null };
 }
+
+// 작물 전체 수정 (이모지, 이름, 심은 날짜, 메모)
+interface UpdateCropParams {
+  cropName?: string;
+  emoji?: string;
+  plantedDate?: string | null;
+  memo?: string | null;
+}
+
+export async function updateCrop(id: string, params: UpdateCropParams) {
+  const updates: Record<string, unknown> = {};
+  if (params.cropName !== undefined) updates.crop_name = params.cropName;
+  if (params.emoji !== undefined) updates.emoji = params.emoji;
+  if (params.plantedDate !== undefined) updates.planted_date = params.plantedDate || null;
+  if (params.memo !== undefined) updates.memo = params.memo || null;
+
+  const { error } = await supabase
+    .from("my_crops")
+    .update(updates)
+    .eq("id", id);
+  if (error) return { error: error.message };
+  return { error: null };
+}
