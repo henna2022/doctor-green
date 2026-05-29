@@ -76,11 +76,31 @@ export default function HomePage() {
         setLoadingData(false);
       },
       (err) => {
-        console.warn("Location denied:", err);
-        setLocationName("위치 권한 필요");
-        setLoadingData(false);
+        console.error("Geolocation error:", err.code, err.message);
+        
+        // 위치 못 받으면 기본 위치 사용 (안성시 - 한경대 위치)
+        const fallbackLat = 37.0079;
+        const fallbackLon = 127.2797;
+        
+        Promise.all([
+          fetchLocationName(fallbackLat, fallbackLon),
+          fetchWeather(fallbackLat, fallbackLon),
+          fetchNearbyPests(fallbackLat, fallbackLon),
+          userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
+        ]).then(([name, weatherData, pests, forecasts]) => {
+          setLocationName(name + " (기본 위치)");
+          setWeather(weatherData);
+          setAlerts(
+            generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
+          );
+          setLoadingData(false);
+        });
       },
-      { enableHighAccuracy: false, timeout: 8000, maximumAge: 600000 }
+      { 
+        enableHighAccuracy: false, 
+        timeout: 15000,      // 8초 → 15초로 늘림
+        maximumAge: 600000 
+      }
     );
   }, [loading, userCrops]);
 

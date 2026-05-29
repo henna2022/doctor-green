@@ -72,3 +72,19 @@ export async function deleteDiagnosis(id: string) {
   if (error) return { error: error.message };
   return { error: null };
 }
+
+// 특정 작물의 진단 기록만 조회
+export async function getDiagnosesByCrop(cropName: string): Promise<DiagnosisRecord[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("diagnoses")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("crop_name", cropName)
+    .order("diagnosed_at", { ascending: false });
+
+  if (error) return [];
+  return data || [];
+}
