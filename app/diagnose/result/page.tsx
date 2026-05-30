@@ -6,8 +6,11 @@ import { saveDiagnosis } from "@/lib/diagnoses";
 import { searchDodam } from "@/lib/dodam";
 import Link from "next/link";
 
+// 진단 신뢰도 임계값 — 이 미만이면 판독 불가 처리
+const CONFIDENCE_THRESHOLD = 0.75;
+
 // 진단 단계 상태
-type Stage = "analyzing" | "done" | "not_detected" | "error";
+type Stage = "analyzing" | "done" | "not_detected" | "low_confidence" | "error";
 
 interface Detection {
   name: string;
@@ -89,6 +92,13 @@ export default function DiagnoseResultPage() {
 
         if (!data.detected) {
           setStage("not_detected");
+          return;
+        }
+
+        // ✨ 신뢰도 체크: 임계값 미만이면 판독 불가 처리
+        console.log(`[Diagnose] confidence: ${data.confidence}, threshold: ${CONFIDENCE_THRESHOLD}`);
+        if (typeof data.confidence !== "number" || data.confidence < CONFIDENCE_THRESHOLD) {
+          setStage("low_confidence");
           return;
         }
 
@@ -183,6 +193,51 @@ export default function DiagnoseResultPage() {
               className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
             >
               다시 진단하기
+            </Link>
+            <Link
+              href="/home"
+              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
+            >
+              홈으로
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ━━━ ✨ 판독 불가 화면 (신뢰도 미달) ━━━
+  if (stage === "low_confidence") {
+    return (
+      <div className="phone-frame">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-brd">
+          <Link href="/diagnose" className="text-2xl">‹</Link>
+          <h1 className="text-base font-bold">진단 결과</h1>
+          <div className="w-6" />
+        </header>
+
+        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
+          {image && (
+            <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image} alt="진단" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <div className="text-5xl mb-3">🔍</div>
+          <h2 className="text-xl font-bold mb-2">판독이 어려워요</h2>
+          <p className="text-sm text-txt2 mb-6 leading-relaxed">
+            이미지에서 딸기 병해를<br />
+            명확히 찾지 못했어요.<br />
+            <br />
+            <span className="text-g1 font-bold">딸기 잎이나 과실</span>이 잘 보이도록<br />
+            더 가까이, 선명하게 촬영해주세요.
+          </p>
+          <div className="flex flex-col gap-2.5 w-full">
+            <Link
+              href="/diagnose"
+              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
+            >
+              📸 다시 촬영하기
             </Link>
             <Link
               href="/home"

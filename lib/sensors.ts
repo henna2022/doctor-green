@@ -72,16 +72,11 @@ export async function deleteDevice(id: string) {
   return { error: null };
 }
 
-// ━━━ 센서 읽기 ━━━
-// Blynk API에서 V1(온도), V2(습도), V3(토양수분), V0(LED), V4(FAN) 한 번에 받기
+// ━━━ 센서 읽기 (Supabase sensor_readings) ━━━
 export async function readSensors(deviceId: string): Promise<SensorReading> {
   try {
-    const res = await fetch(`/api/blynk/read?deviceId=${deviceId}`);
-    if (!res.ok) {
-      const text = await res.text();
-      console.error("API response:", res.status, text);
-      throw new Error(`read failed: ${res.status}`);
-    }
+    const res = await fetch(`http://localhost:5001/api/blynk/read?deviceId=${deviceId}`);
+    if (!res.ok) throw new Error(`read failed: ${res.status}`);
     return await res.json();
   } catch (e) {
     console.error("readSensors error:", e);
@@ -93,7 +88,7 @@ export async function readSensors(deviceId: string): Promise<SensorReading> {
 // pin: 'led' | 'fan', value: true(켜기) / false(끄기)
 export async function writeActuator(deviceId: string, pin: "led" | "fan", value: boolean) {
   try {
-    const res = await fetch("/api/blynk/write", {
+    const res = await fetch("http://localhost:5001/api/blynk/write", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ deviceId, pin, value }),
