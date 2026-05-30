@@ -57,7 +57,11 @@ export default function RealtimePage() {
       alert("저장 실패: " + res.error);
     } else {
       setDevices(await getMyDevices());
-      setName(""); setCropId(""); setBlynkToken("DEMO"); setCameraUrl(""); setCameraType("none");
+      setName("");
+      setCropId("");
+      setBlynkToken("DEMO");
+      setCameraUrl("");
+      setCameraType("none");
       setShowAdd(false);
     }
     setSaving(false);
@@ -242,9 +246,7 @@ export default function RealtimePage() {
                 </>
               )}
 
-              {cameraType === "none" && (
-                <div className="mb-5" />
-              )}
+              {cameraType === "none" && <div className="mb-5" />}
 
               <button
                 onClick={handleAdd}

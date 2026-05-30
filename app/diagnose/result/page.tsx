@@ -6,7 +6,18 @@ import { saveDiagnosis } from "@/lib/diagnoses";
 import Link from "next/link";
 
 // 진단 단계 상태
-type Stage = "analyzing" | "done";
+type Stage = "analyzing" | "done" | "not_detected" | "error";
+
+// API 응답 타입 (HF Space에서 받는 형태)
+interface DiagnosisResult {
+  detected: true;
+  disease_name: string;
+  disease_name_en: string;
+  confidence: number; // 0 ~ 1
+  severity: "경미" | "보통" | "심각";
+  count: number;
+  all: Array<{ name: string; confidence: number }>;
+}
 
 export default function DiagnoseResultPage() {
   const router = useRouter();
@@ -14,6 +25,8 @@ export default function DiagnoseResultPage() {
   const [stage, setStage] = useState<Stage>("analyzing");
   const [image, setImage] = useState<string | null>(null);
   const [crop, setCrop] = useState("");
+  const [result, setResult] = useState<DiagnosisResult | null>(null);
+  const [errorMsg, setErrorMsg] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
@@ -23,7 +36,6 @@ export default function DiagnoseResultPage() {
     const savedCrop = sessionStorage.getItem("diagnose_crop");
 
     if (!savedImage) {
-      // 이미지 없이 직접 들어온 경우 → 진단 페이지로
       router.push("/diagnose");
       return;
     }
@@ -31,13 +43,32 @@ export default function DiagnoseResultPage() {
     setImage(savedImage);
     setCrop(savedCrop || "미지정");
 
-    // AI 분석 시뮬레이션 (2.5초 후 결과)
-    // TODO: 실제 AI 모델 연결
-    const timer = setTimeout(() => {
-      setStage("done");
-    }, 2500);
+    // ━━━ 실제 AI 진단 API 호출 ━━━
+    (async () => {
+      try {
+        const res = await fetch("/api/diagnose", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ imageBase64: savedImage }),
+        });
+        const data = await res.json();
 
-    return () => clearTimeout(timer);
+        if (!res.ok || data.error) {
+          throw new Error(data.error || "진단 실패");
+        }
+
+        if (!data.detected) {
+          setStage("not_detected");
+          return;
+        }
+
+        setResult(data as DiagnosisResult);
+        setStage("done");
+      } catch (e: any) {
+        setErrorMsg(e.message ?? "진단 중 오류가 발생했어요");
+        setStage("error");
+      }
+    })();
   }, [router]);
 
   // ━━━ 분석 중 화면 ━━━
@@ -51,7 +82,6 @@ export default function DiagnoseResultPage() {
         </header>
 
         <main className="flex-1 flex flex-col items-center justify-center px-5">
-          {/* 이미지 미리보기 */}
           {image && (
             <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
               {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -59,42 +89,129 @@ export default function DiagnoseResultPage() {
             </div>
           )}
 
-          {/* 로딩 스피너 */}
           <div className="w-12 h-12 border-4 border-g5 border-t-g1 rounded-full animate-spin mb-4" />
           <p className="text-base font-bold text-g1 mb-1">AI가 분석하고 있어요</p>
           <p className="text-sm text-txt2">잠시만 기다려주세요...</p>
+          <p className="text-xs text-txt3 mt-2">최대 1분 정도 소요될 수 있어요</p>
         </main>
       </div>
     );
   }
 
-  // ━━━ 결과 화면 (임시 데이터) ━━━
-  // TODO: 실제 AI 진단 결과로 교체
-  const result = {
-    diseaseName: "잎곰팡이병",
-    confidence: 87,
-    severity: "mid" as "low" | "mid" | "high",
-    cropName: crop !== "미지정" ? crop : "토마토",
-    symptoms: ["잎 뒷면 회색 곰팡이", "황색 반점", "잎 마름"],
-    description:
-      "잎곰팡이병은 고온다습한 환경에서 주로 발생합니다. 잎 뒷면에 회색~갈색 곰팡이가 피며, 진행되면 잎이 마르고 광합성이 저하됩니다.",
-    remedies: [
-      "감염된 잎은 즉시 제거하여 소각",
-      "시설 내 환기를 강화하여 습도를 낮추기",
-      "적용 약제로 방제 (농약안전정보시스템 확인)",
-    ],
+  // ━━━ 병해 미감지 화면 ━━━
+  if (stage === "not_detected") {
+    return (
+      <div className="phone-frame">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-brd">
+          <Link href="/diagnose" className="text-2xl">‹</Link>
+          <h1 className="text-base font-bold">진단 결과</h1>
+          <div className="w-6" />
+        </header>
+
+        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
+          {image && (
+            <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              <img src={image} alt="진단" className="w-full h-full object-cover" />
+            </div>
+          )}
+          <div className="text-5xl mb-3">🌱</div>
+          <h2 className="text-xl font-bold mb-2">건강한 상태로 보여요</h2>
+          <p className="text-sm text-txt2 mb-6 leading-relaxed">
+            병해를 감지하지 못했어요.<br />
+            잎이나 과실을 더 가까이 찍으면<br />
+            정확도가 올라갈 수 있어요.
+          </p>
+          <div className="flex flex-col gap-2.5 w-full">
+            <Link
+              href="/diagnose"
+              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
+            >
+              다시 진단하기
+            </Link>
+            <Link
+              href="/home"
+              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
+            >
+              홈으로
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ━━━ 에러 화면 ━━━
+  if (stage === "error") {
+    return (
+      <div className="phone-frame">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-brd">
+          <Link href="/diagnose" className="text-2xl">‹</Link>
+          <h1 className="text-base font-bold">진단 실패</h1>
+          <div className="w-6" />
+        </header>
+
+        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
+          <div className="text-5xl mb-3">⚠️</div>
+          <h2 className="text-xl font-bold mb-2">진단을 완료하지 못했어요</h2>
+          <p className="text-sm text-txt2 mb-2 leading-relaxed">{errorMsg}</p>
+          <p className="text-xs text-txt3 mb-6 leading-relaxed">
+            네트워크를 확인하고 다시 시도해주세요.<br />
+            (AI 서버가 절전 상태에서 깨어나는 중일 수 있어요)
+          </p>
+          <div className="flex flex-col gap-2.5 w-full">
+            <button
+              onClick={() => window.location.reload()}
+              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
+            >
+              다시 시도
+            </button>
+            <Link
+              href="/diagnose"
+              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
+            >
+              진단 페이지로
+            </Link>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
+  // ━━━ 결과 화면 (실제 데이터) ━━━
+  if (!result) return null;
+
+  // confidence 0.9239 → 92
+  const confidencePercent = Math.round(result.confidence * 100);
+
+  // severity 한글 → UI 색상
+  const severityMap = {
+    "경미": { label: "경미", color: "#4ECAA0", bg: "#E8F8F0" },
+    "보통": { label: "주의", color: "#FFA500", bg: "#FFF4E5" },
+    "심각": { label: "심각", color: "#F08080", bg: "#FFEAEA" },
   };
+  const severityInfo = severityMap[result.severity] ?? severityMap["보통"];
+
+  // severity 한글 → DB 저장용 키
+  const severityKey: "low" | "mid" | "high" =
+    result.severity === "경미" ? "low" :
+    result.severity === "심각" ? "high" : "mid";
+
+  // all 배열에서 대표 진단 외에 다른 종류만 추출 (중복 제거)
+  const otherSuspects = result.all
+    .filter((x) => x.name !== result.disease_name)
+    .filter((x, i, arr) => arr.findIndex((y) => y.name === x.name) === i);
 
   const handleSave = async () => {
     if (saved || !image) return;
     setSaving(true);
     const res = await saveDiagnosis({
       cropName: crop,
-      diseaseName: result.diseaseName,
-      confidence: result.confidence,
-      severity: result.severity,
+      diseaseName: result.disease_name,
+      confidence: confidencePercent,
+      severity: severityKey,
       imageUrl: image,
-      symptoms: result.symptoms,
+      symptoms: [], // 모델이 증상 정보는 제공하지 않음 - 도감에서 확인
     });
     if (res.error) {
       alert("저장 실패: " + res.error);
@@ -103,12 +220,6 @@ export default function DiagnoseResultPage() {
     }
     setSaving(false);
   };
-
-  const severityInfo = {
-    low: { label: "경미", color: "#4ECAA0", bg: "#E8F8F0" },
-    mid: { label: "주의", color: "#FFA500", bg: "#FFF4E5" },
-    high: { label: "심각", color: "#F08080", bg: "#FFEAEA" },
-  }[result.severity];
 
   return (
     <div className="phone-frame overflow-y-auto">
@@ -130,58 +241,63 @@ export default function DiagnoseResultPage() {
         <div className="px-5 py-5">
           {/* 진단명 + 신뢰도 */}
           <div className="flex items-start justify-between mb-4">
-            <div>
+            <div className="flex-1">
               <span
                 className="text-xs font-bold px-2.5 py-1 rounded-full"
                 style={{ background: severityInfo.bg, color: severityInfo.color }}
               >
                 {severityInfo.label}
               </span>
-              <h2 className="text-2xl font-extrabold mt-2">{result.diseaseName}</h2>
-              <Link
-                href={`/dodam/disease?keyword=${encodeURIComponent(result.diseaseName)}`}
-                className="inline-block mt-1 text-xs text-g2 underline"
-              >
-                도감에서 자세히 보기 ›
-              </Link>
-              <p className="text-sm text-txt2">{result.cropName}</p>
+              <h2 className="text-2xl font-extrabold mt-2">{result.disease_name}</h2>
+              <p className="text-sm text-txt2">{crop}</p>
             </div>
-            <div className="text-right">
-              <div className="text-3xl font-extrabold text-g1">{result.confidence}%</div>
+            <div className="text-right ml-2">
+              <div className="text-3xl font-extrabold text-g1">{confidencePercent}%</div>
               <p className="text-xs text-txt3">신뢰도</p>
             </div>
           </div>
 
-          {/* 증상 태그 */}
-          <div className="mb-5">
-            <h3 className="text-sm font-bold mb-2">🔍 주요 증상</h3>
-            <div className="flex flex-wrap gap-1.5">
-              {result.symptoms.map((s) => (
-                <span key={s} className="px-3 py-1.5 rounded-full bg-g5 text-g1 text-xs font-medium">
-                  {s}
-                </span>
-              ))}
+          {/* 감지 위치 개수 */}
+          {result.count > 1 && (
+            <p className="text-xs text-txt2 mb-4">
+              이미지에서 <span className="font-bold text-g1">{result.count}곳</span>의 병반이 감지되었어요
+            </p>
+          )}
+
+          {/* 도감 안내 (메인 CTA - description/remedies 대체) */}
+          <Link
+            href={`/dodam/disease?keyword=${encodeURIComponent(result.disease_name)}`}
+            className="block mb-5 p-4 rounded-2xl bg-g5 border-2 border-g3 hover:bg-g4 transition"
+          >
+            <div className="flex items-center justify-between">
+              <div className="flex-1">
+                <h3 className="text-sm font-bold text-g1 mb-1">📖 도감에서 자세히 보기</h3>
+                <p className="text-xs text-txt2 leading-relaxed">
+                  증상, 발생 조건, 방제 방법을<br />NCPMS 도감에서 확인하세요
+                </p>
+              </div>
+              <span className="text-3xl text-g1 ml-2">›</span>
             </div>
-          </div>
+          </Link>
 
-          {/* 설명 */}
-          <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd">
-            <h3 className="text-sm font-bold mb-2">📖 질병 설명</h3>
-            <p className="text-sm text-txt2 leading-relaxed">{result.description}</p>
-          </div>
-
-          {/* 방제 방법 */}
-          <div className="mb-6 p-4 rounded-2xl bg-g5">
-            <h3 className="text-sm font-bold mb-3 text-g1">💊 방제 방법</h3>
-            <ul className="flex flex-col gap-2">
-              {result.remedies.map((r, i) => (
-                <li key={i} className="flex gap-2 text-sm text-txt">
-                  <span className="text-g1 font-bold">{i + 1}.</span>
-                  <span className="leading-relaxed">{r}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
+          {/* 다른 의심 진단 (있을 때만) */}
+          {otherSuspects.length > 0 && (
+            <div className="mb-5">
+              <h3 className="text-sm font-bold mb-2">🔍 다른 가능성</h3>
+              <div className="flex flex-col gap-1.5">
+                {otherSuspects.map((s, i) => (
+                  <Link
+                    key={i}
+                    href={`/dodam/disease?keyword=${encodeURIComponent(s.name)}`}
+                    className="flex items-center justify-between px-3 py-2 rounded-xl bg-bg-card border border-brd hover:bg-g5 transition"
+                  >
+                    <span className="text-sm">{s.name}</span>
+                    <span className="text-xs text-txt2">{Math.round(s.confidence * 100)}%</span>
+                  </Link>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* 주의 안내 */}
           <p className="text-xs text-txt3 text-center mb-5 leading-relaxed">
@@ -189,7 +305,6 @@ export default function DiagnoseResultPage() {
             농업기술센터 또는 전문가 상담을 권장합니다
           </p>
 
-          {/* 버튼들 */}
           {/* 버튼들 */}
           <div className="flex flex-col gap-2.5">
             <button

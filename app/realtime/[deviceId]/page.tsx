@@ -89,9 +89,8 @@ export default function DeviceDetailPage() {
     async function loadCameras() {
       try {
         // 권한 먼저 요청 (이거 없으면 라벨이 안 보임)
-        await navigator.mediaDevices.getUserMedia({ video: true }).then((s) => {
-          s.getTracks().forEach((t) => t.stop()); // 일단 끄고 디바이스만 받기
-        });
+        const tempStream = await navigator.mediaDevices.getUserMedia({ video: true });
+        tempStream.getTracks().forEach((t) => t.stop()); // 일단 끄고 디바이스만 받기
 
         const allDevices = await navigator.mediaDevices.enumerateDevices();
         const cameras = allDevices.filter((d) => d.kind === "videoinput");
@@ -116,10 +115,6 @@ export default function DeviceDetailPage() {
 
     async function startStream() {
       try {
-        // 기존 스트림 정리
-        if (cameraStream) {
-          cameraStream.getTracks().forEach((t) => t.stop());
-        }
         stream = await navigator.mediaDevices.getUserMedia({
           video: {
             deviceId: { exact: selectedCameraId },
@@ -252,7 +247,6 @@ export default function DeviceDetailPage() {
     soil: l.soil,
   }));
 
-  // 카메라 사용 가능 여부
   const hasCamera = device.camera_type === "usb" || (device.camera_type === "mjpeg" && device.camera_url);
 
   return (
@@ -292,7 +286,6 @@ export default function DeviceDetailPage() {
       <main className="flex-1 px-5 py-5 pb-2">
         {activeTab === "live" && (
           <>
-            {/* 카메라 영역 */}
             <section className="mb-5">
               {/* USB 카메라일 때: 카메라 선택 드롭다운 */}
               {device.camera_type === "usb" && cameraDevices.length > 1 && (
@@ -327,7 +320,6 @@ export default function DeviceDetailPage() {
                   </>
                 )}
 
-                {/* USB 에러 */}
                 {device.camera_type === "usb" && cameraError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 px-4 text-center">
                     <div className="text-4xl mb-2">⚠️</div>
@@ -335,7 +327,6 @@ export default function DeviceDetailPage() {
                   </div>
                 )}
 
-                {/* USB 로딩 */}
                 {device.camera_type === "usb" && !cameraStream && !cameraError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
                     <div className="w-8 h-8 border-2 border-white/20 border-t-white/60 rounded-full animate-spin mb-2" />
@@ -370,7 +361,7 @@ export default function DeviceDetailPage() {
                 )}
               </div>
 
-              {/* 스냅샷 버튼 */}
+              {/* 📸 스냅샷 버튼 */}
               <button
                 onClick={handleSnapshot}
                 disabled={!hasCamera || (device.camera_type === "usb" && !cameraStream)}
