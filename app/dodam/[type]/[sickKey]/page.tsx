@@ -17,13 +17,16 @@ export default function DodamDetailPage() {
 
   useEffect(() => {
     async function load() {
+      console.log("[Dodam Detail] Loading sickKey:", sickKey);
       const d = await getDodamDetail(sickKey);
+      console.log("[Dodam Detail] Got data:", d);
       setDetail(d);
       setLoading(false);
     }
     load();
   }, [sickKey]);
 
+  // ━━━ 로딩 ━━━
   if (loading) {
     return (
       <div className="phone-frame items-center justify-center">
@@ -32,6 +35,7 @@ export default function DodamDetailPage() {
     );
   }
 
+  // ━━━ detail 자체가 없음 (API 실패 또는 404) ━━━
   if (!detail) {
     return (
       <div className="phone-frame">
@@ -40,8 +44,16 @@ export default function DodamDetailPage() {
           <h1 className="text-base font-bold">정보 없음</h1>
           <div className="w-6" />
         </header>
-        <main className="flex-1 flex items-center justify-center px-5">
-          <p className="text-sm text-txt2">상세 정보를 찾을 수 없습니다.</p>
+        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
+          <div className="text-5xl mb-3">📭</div>
+          <p className="text-sm text-txt2 mb-2">상세 정보를 가져오지 못했어요</p>
+          <p className="text-xs text-txt3 mb-6">잠시 후 다시 시도해주세요</p>
+          <Link
+            href={backHref}
+            className="px-6 py-3 rounded-2xl bg-g1 text-white font-bold text-sm"
+          >
+            도감으로 돌아가기
+          </Link>
         </main>
       </div>
     );
@@ -49,6 +61,57 @@ export default function DodamDetailPage() {
 
   const typeLabel = type === "disease" ? "질병" : "해충";
 
+  // 실제 컨텐츠가 있는지 확인 (이름은 있어도 내용은 빌 수 있음)
+  const hasContent = !!(
+    detail.symptoms ||
+    detail.cause ||
+    detail.prevention ||
+    detail.culturalControl ||
+    detail.biologicalControl ||
+    detail.chemicalControl ||
+    (detail.imageUrls && detail.imageUrls.length > 0)
+  );
+
+  // ━━━ detail은 있지만 내용이 비어있음 ━━━
+  if (!hasContent) {
+    return (
+      <div className="phone-frame overflow-y-auto">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
+          <Link href={backHref} className="text-2xl">‹</Link>
+          <h1 className="text-base font-bold">{typeLabel} 도감</h1>
+          <div className="w-6" />
+        </header>
+        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center py-10">
+          <div className="text-5xl mb-3">📖</div>
+          {detail.name && (
+            <h2 className="text-xl font-extrabold text-g1 mb-1">{detail.name}</h2>
+          )}
+          {detail.cropName && (
+            <p className="text-sm text-txt2 mb-1">🌱 {detail.cropName}</p>
+          )}
+          {detail.nameSci && (
+            <p className="text-xs text-txt3 italic mb-4">{detail.nameSci}</p>
+          )}
+          <div className="my-6 px-4 py-3 rounded-2xl bg-g5">
+            <p className="text-sm text-g1 font-bold mb-1">상세 정보가 비어있어요</p>
+            <p className="text-xs text-txt2 leading-relaxed">
+              이 항목은 NCPMS 도감에<br />
+              증상·방제 정보가 등록되지 않았어요.<br />
+              다른 항목을 확인해보세요!
+            </p>
+          </div>
+          <Link
+            href={backHref}
+            className="px-6 py-3 rounded-2xl bg-g1 text-white font-bold text-sm"
+          >
+            다른 항목 보기
+          </Link>
+        </main>
+      </div>
+    );
+  }
+
+  // ━━━ 정상 상세 화면 ━━━
   return (
     <div className="phone-frame overflow-y-auto">
       <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">

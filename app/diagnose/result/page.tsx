@@ -46,6 +46,7 @@ export default function DiagnoseResultPage() {
   const [stage, setStage] = useState<Stage>("analyzing");
   const [image, setImage] = useState<string | null>(null);
   const [crop, setCrop] = useState("");
+  const [cropId, setCropId] = useState<string | null>(null);
   const [result, setResult] = useState<DiagnosisResult | null>(null);
   const [errorMsg, setErrorMsg] = useState("");
   const [saved, setSaved] = useState(false);
@@ -60,12 +61,15 @@ export default function DiagnoseResultPage() {
   useEffect(() => {
     const img = sessionStorage.getItem("diagnose_image");
     const cropName = sessionStorage.getItem("diagnose_crop") ?? "";
+    const savedCropId = sessionStorage.getItem("diagnose_crop_id");
+
     if (!img) {
       router.replace("/diagnose");
       return;
     }
     setImage(img);
     setCrop(cropName);
+    setCropId(savedCropId || null);
 
     (async () => {
       try {
@@ -89,12 +93,13 @@ export default function DiagnoseResultPage() {
 
         setResult(data as DiagnosisResult);
         setStage("done");
-      } catch (e: any) {
-        setErrorMsg(String(e?.message ?? e));
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        setErrorMsg(msg);
         setStage("error");
       }
     })();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // 진단 완료 후 NCPMS 상세 자동 로드 (첫 번째: 상세 정보 있는 후보 탐색)
@@ -292,6 +297,7 @@ export default function DiagnoseResultPage() {
     if (saved || !image) return;
     setSaving(true);
     const res = await saveDiagnosis({
+      cropId: cropId,
       cropName: crop,
       diseaseName: result.disease_name,
       confidence: confidencePercent,

@@ -2,6 +2,7 @@ import { supabase } from "./supabase";
 
 export interface DiagnosisRecord {
   id: string;
+  crop_id: string | null;
   crop_name: string | null;
   disease_name: string;
   confidence: number | null;
@@ -12,6 +13,7 @@ export interface DiagnosisRecord {
 }
 
 interface SaveParams {
+  cropId?: string | null;
   cropName: string;
   diseaseName: string;
   confidence: number;
@@ -30,6 +32,7 @@ export async function saveDiagnosis(params: SaveParams) {
 
   const { error } = await supabase.from("diagnoses").insert({
     user_id: user.id,
+    crop_id: params.cropId || null,
     crop_name: params.cropName === "미지정" ? null : params.cropName,
     disease_name: params.diseaseName,
     confidence: params.confidence,
@@ -73,7 +76,7 @@ export async function deleteDiagnosis(id: string) {
   return { error: null };
 }
 
-// 특정 작물의 진단 기록만 조회
+// 특정 작물의 진단 기록 (작물명 기준 - 레거시 호환용)
 export async function getDiagnosesByCrop(cropName: string): Promise<DiagnosisRecord[]> {
   const { data: { user } } = await supabase.auth.getUser();
   if (!user) return [];
@@ -83,6 +86,22 @@ export async function getDiagnosesByCrop(cropName: string): Promise<DiagnosisRec
     .select("*")
     .eq("user_id", user.id)
     .eq("crop_name", cropName)
+    .order("diagnosed_at", { ascending: false });
+
+  if (error) return [];
+  return data || [];
+}
+
+// 특정 작물의 진단 기록 (crop_id 기준 - 정확한 매칭)
+export async function getDiagnosesByCropId(cropId: string): Promise<DiagnosisRecord[]> {
+  const { data: { user } } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const { data, error } = await supabase
+    .from("diagnoses")
+    .select("*")
+    .eq("user_id", user.id)
+    .eq("crop_id", cropId)
     .order("diagnosed_at", { ascending: false });
 
   if (error) return [];
