@@ -21,12 +21,14 @@ interface DodamListProps {
 export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
   const searchParams = useSearchParams();
   const initialCrop = searchParams.get("crop") || "";
+  const initialKeyword = searchParams.get("keyword") || "";
 
   const [items, setItems] = useState<DodamItem[]>([]);
   const [loading, setLoading] = useState(false);
-  const [selectedCrop, setSelectedCrop] = useState<string>("");
-  const [keyword, setKeyword] = useState("");
-  const [debouncedKeyword, setDebouncedKeyword] = useState("");
+  // URL 파라미터를 초기값으로 사용 (진단 결과에서 점프 시 자동 검색)
+  const [selectedCrop, setSelectedCrop] = useState<string>(initialCrop);
+  const [keyword, setKeyword] = useState(initialKeyword);
+  const [debouncedKeyword, setDebouncedKeyword] = useState(initialKeyword);
 
   // 검색어 디바운싱 (입력 멈춘 후 500ms 뒤 검색)
   useEffect(() => {

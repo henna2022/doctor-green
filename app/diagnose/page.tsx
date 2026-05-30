@@ -34,6 +34,16 @@ export default function DiagnosePage() {
     return () => stopCamera();
   }, [stopCamera]);
 
+  // HF Space cold start 완화: 진입 시 백그라운드 warmup (실패해도 무시)
+  useEffect(() => {
+    fetch("/api/diagnose/ping").catch(() => {});
+  }, []);
+
+  // 컴포넌트 사라질 때 카메라 정리 (메모리 누수 방지)
+  useEffect(() => {
+    return () => stopCamera();
+  }, [stopCamera]);
+
   // 카메라 켜기
   const startCamera = async () => {
     setCameraError("");
