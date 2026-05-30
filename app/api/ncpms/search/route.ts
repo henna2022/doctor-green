@@ -91,11 +91,12 @@ export async function GET(req: NextRequest) {
     let allItems: NcpmsListItem[];
 
     if (!cropName) {
-      // 전체 선택: 모든 작물을 병렬 호출 후 합산
-      const perCropResults = await Promise.all(
+      const settled = await Promise.allSettled(
         ALL_CROPS.map((crop) => fetchForCrop(type, crop, keyword, NCPMS_KEY!))
       );
-      allItems = perCropResults.flat();
+      allItems = settled.flatMap((r) =>
+        r.status === "fulfilled" ? r.value : []
+      );
     } else {
       // 특정 작물 선택
       allItems = await fetchForCrop(type, cropName, keyword, NCPMS_KEY);
@@ -110,7 +111,8 @@ export async function GET(req: NextRequest) {
         if (seen.has(x.sickKey)) return false;
         seen.add(x.sickKey);
         return true;
-      });
+      })
+      .sort((a, b) => a.name.localeCompare(b.name, "ko"));
 
     return NextResponse.json(results);
   } catch (e) {

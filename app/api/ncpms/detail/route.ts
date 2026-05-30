@@ -77,7 +77,11 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json(result);
   } catch (e) {
-    console.error("NCPMS detail error:", e);
-    return NextResponse.json({ error: "fetch failed" }, { status: 502 });
+    const errMsg = e instanceof Error ? e.message : String(e);
+    console.error("NCPMS detail error:", errMsg);
+    return NextResponse.json(
+      { error: "fetch failed", detail: errMsg, sickKey },
+      { status: 502 }
+    );
   }
 }
