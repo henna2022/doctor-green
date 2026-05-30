@@ -3,13 +3,12 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { saveDiagnosis } from "@/lib/diagnoses";
-import { searchDodam, getDodamDetail, DodamDetail } from "@/lib/dodam";
+import { searchDodam } from "@/lib/dodam";
 import Link from "next/link";
 
 // 진단 단계 상태
 type Stage = "analyzing" | "done" | "not_detected" | "error";
 
-// HF Space에서 받는 API 응답 타입
 interface Detection {
   name: string;
   name_en: string;
@@ -21,7 +20,7 @@ interface DiagnosisResult {
   detected: true;
   disease_name: string;
   disease_name_en: string;
-  confidence: number; // 0 ~ 1
+  confidence: number;
   severity: "경미" | "보통" | "심각";
   count: number;
   image_width: number;
@@ -30,12 +29,15 @@ interface DiagnosisResult {
   all: Array<{ name: string; confidence: number }>;
 }
 
+// NCPMS 외부 모바일 도감 URL
+function ncpmsExternalUrl(sickKey: string): string {
+  return `https://ncpms.rda.go.kr/mobile/MobileSicknsDtlR.ms?dtlKey=${sickKey}&totalSearchYn=Y`;
+}
+
 // "딸기 흰가루병(잎)" → keyword="흰가루병", cropName="딸기"
 function normalizeForSearch(diseaseName: string): { keyword: string; cropName: string } {
   let keyword = diseaseName;
-  // 작물명 접두사 제거
   keyword = keyword.replace(/^(딸기|토마토|고추|오이|복숭아|사과|배추|벼|마늘|양파)\s*/, "");
-  // 괄호 부분 제거: (잎), (과실) 등
   keyword = keyword.replace(/\([^)]+\)/g, "").trim();
   return { keyword, cropName: "딸기" };
 }
@@ -52,9 +54,8 @@ export default function DiagnoseResultPage() {
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // NCPMS 도감 자동 연동
+  // NCPMS sickKey 매칭 (detail은 호출 X - SVC05 작동 안 함)
   const [ncpmsLoading, setNcpmsLoading] = useState(false);
-  const [ncpmsDetail, setNcpmsDetail] = useState<DodamDetail | null>(null);
   const [ncpmsSickKey, setNcpmsSickKey] = useState<string | null>(null);
 
   // 진단 API 호출
@@ -102,7 +103,7 @@ export default function DiagnoseResultPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 진단 완료 후 NCPMS 상세 자동 로드 (첫 번째: 상세 정보 있는 후보 탐색)
+  // 진단 완료 후 NCPMS search로 sickKey 찾기 (외부 링크용)
   useEffect(() => {
     if (stage !== "done" || !result) return;
 
@@ -111,38 +112,14 @@ export default function DiagnoseResultPage() {
       try {
         const { keyword, cropName } = normalizeForSearch(result.disease_name);
 
-        // 1차: 작물명 + 키워드
         let items = await searchDodam("disease", cropName, keyword);
-
-        // 2차: 안 나오면 키워드만으로
         if (items.length === 0) {
           items = await searchDodam("disease", undefined, keyword);
         }
 
-        if (items.length === 0) return;
-
-        // 후보 여러 개 순서대로 시도 - 실제 상세 정보가 있는 첫 번째 항목 사용
-        for (const candidate of items.slice(0, 5)) {
-          const detail = await getDodamDetail(candidate.sickKey);
-          if (
-            detail &&
-            (detail.symptoms ||
-              detail.prevention ||
-              detail.chemicalControl ||
-              detail.cause ||
-              detail.culturalControl ||
-              detail.biologicalControl)
-          ) {
-            setNcpmsSickKey(candidate.sickKey);
-            setNcpmsDetail(detail);
-            return;
-          }
-        }
-
-        // 모든 후보가 빈 detail이면 첫 sickKey만 저장 (링크는 검색으로 대체됨)
         if (items[0]) setNcpmsSickKey(items[0].sickKey);
       } catch (e) {
-        console.error("NCPMS fetch error:", e);
+        console.error("NCPMS search error:", e);
       } finally {
         setNcpmsLoading(false);
       }
@@ -268,30 +245,13 @@ export default function DiagnoseResultPage() {
   };
   const severityInfo = severityMap[result.severity] ?? severityMap["보통"];
 
-  // DB 저장용 severity 한글 → 키
   const severityKey: "low" | "mid" | "high" =
     result.severity === "경미" ? "low" :
     result.severity === "심각" ? "high" : "mid";
 
-  // all 배열에서 대표 진단 외 다른 종류만 (중복 제거)
   const otherSuspects = result.all
     .filter((x) => x.name !== result.disease_name)
     .filter((x, i, arr) => arr.findIndex((y) => y.name === x.name) === i);
-
-  // 도감 링크: NCPMS 매칭 성공 시 상세로 직접, 실패 시 검색으로
-  const { keyword: dodamKeyword } = normalizeForSearch(result.disease_name);
-  const dodamHref = ncpmsSickKey && ncpmsDetail
-    ? `/dodam/disease/${ncpmsSickKey}`
-    : `/dodam/disease?keyword=${encodeURIComponent(dodamKeyword)}&crop=딸기`;
-
-  // 방제 방법 모으기 (NCPMS에 있는 것만)
-  const remedies: Array<{ label: string; text: string }> = [];
-  if (ncpmsDetail) {
-    if (ncpmsDetail.prevention) remedies.push({ label: "예방", text: ncpmsDetail.prevention });
-    if (ncpmsDetail.culturalControl) remedies.push({ label: "경종적 방제", text: ncpmsDetail.culturalControl });
-    if (ncpmsDetail.biologicalControl) remedies.push({ label: "생물학적 방제", text: ncpmsDetail.biologicalControl });
-    if (ncpmsDetail.chemicalControl) remedies.push({ label: "화학적 방제", text: ncpmsDetail.chemicalControl });
-  }
 
   const handleSave = async () => {
     if (saved || !image) return;
@@ -303,7 +263,7 @@ export default function DiagnoseResultPage() {
       confidence: confidencePercent,
       severity: severityKey,
       imageUrl: image,
-      symptoms: [], // 증상 텍스트는 NCPMS 도감에서 가져오므로 DB에는 빈 배열
+      symptoms: [],
     });
     if (res.error) {
       alert("저장 실패: " + res.error);
@@ -322,7 +282,7 @@ export default function DiagnoseResultPage() {
       </header>
 
       <main className="flex-1 pb-6">
-        {/* 진단 이미지 + bbox 오버레이 (이미지 비율 그대로) */}
+        {/* 진단 이미지 + bbox 오버레이 */}
         {image && (
           <div
             className="w-full overflow-hidden relative bg-bg-card"
@@ -335,7 +295,6 @@ export default function DiagnoseResultPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src={image} alt="진단 결과" className="w-full h-full object-contain" />
 
-            {/* AI 감지 박스 */}
             {result.image_width > 0 &&
               result.image_height > 0 &&
               result.detections?.length > 0 && (
@@ -417,68 +376,53 @@ export default function DiagnoseResultPage() {
             </p>
           )}
 
-          {/* NCPMS 로딩 표시 */}
+          {/* NCPMS 매칭 로딩 */}
           {ncpmsLoading && (
             <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-g5 border-t-g1 rounded-full animate-spin" />
-              <p className="text-xs text-txt2">도감 정보 불러오는 중...</p>
+              <p className="text-xs text-txt2">NCPMS 도감 매칭 중...</p>
             </div>
           )}
 
-          {/* 증상 (NCPMS) */}
-          {ncpmsDetail?.symptoms && (
-            <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd">
-              <h3 className="text-sm font-bold mb-2">🔍 증상</h3>
-              <p className="text-sm text-txt2 leading-relaxed whitespace-pre-line">
-                {ncpmsDetail.symptoms}
-              </p>
-            </div>
-          )}
-
-          {/* 발생 환경 (NCPMS) */}
-          {ncpmsDetail?.cause && (
-            <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd">
-              <h3 className="text-sm font-bold mb-2">🌡 발생 환경</h3>
-              <p className="text-sm text-txt2 leading-relaxed whitespace-pre-line">
-                {ncpmsDetail.cause}
-              </p>
-            </div>
-          )}
-
-          {/* 방제 방법 (NCPMS) */}
-          {remedies.length > 0 && (
-            <div className="mb-6 p-4 rounded-2xl bg-g5">
-              <h3 className="text-sm font-bold mb-3 text-g1">💊 방제 방법</h3>
-              <div className="flex flex-col gap-3">
-                {remedies.map((r, i) => (
-                  <div key={i}>
-                    <p className="text-xs font-bold text-g1 mb-1">{r.label}</p>
-                    <p className="text-sm text-txt leading-relaxed whitespace-pre-line">
-                      {r.text}
-                    </p>
-                  </div>
-                ))}
+          {/* NCPMS 외부 도감 링크 - 메인 CTA */}
+          {ncpmsSickKey ? (
+            <a
+              href={ncpmsExternalUrl(ncpmsSickKey)}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="block mb-5 p-4 rounded-2xl bg-g5 border-2 border-g3 hover:bg-g4 transition"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-g1 mb-1">
+                    📖 NCPMS 공식 도감에서 자세히 보기 ↗
+                  </h3>
+                  <p className="text-xs text-txt2 leading-relaxed">
+                    증상·발생환경·방제 방법을<br />
+                    농촌진흥청 공식 페이지에서 확인
+                  </p>
+                </div>
+                <span className="text-3xl text-g1 ml-2">›</span>
               </div>
-            </div>
-          )}
-
-          {/* 도감 더 보기 */}
-          <Link
-            href={dodamHref}
-            className="block mb-5 p-4 rounded-2xl bg-g5 border-2 border-g3 hover:bg-g4 transition"
-          >
-            <div className="flex items-center justify-between">
-              <div className="flex-1">
-                <h3 className="text-sm font-bold text-g1 mb-1">📖 도감에서 더 보기</h3>
-                <p className="text-xs text-txt2 leading-relaxed">
-                  {ncpmsSickKey
-                    ? "NCPMS 도감에서 사진과 함께 자세히 확인"
-                    : "관련 병해를 도감에서 찾아보세요"}
-                </p>
+            </a>
+          ) : !ncpmsLoading && (
+            <Link
+              href={`/dodam/disease?keyword=${encodeURIComponent(
+                normalizeForSearch(result.disease_name).keyword
+              )}&crop=딸기`}
+              className="block mb-5 p-4 rounded-2xl bg-g5 border-2 border-g3 hover:bg-g4 transition"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex-1">
+                  <h3 className="text-sm font-bold text-g1 mb-1">📖 도감에서 찾아보기</h3>
+                  <p className="text-xs text-txt2 leading-relaxed">
+                    관련 병해를 도감에서 검색해보세요
+                  </p>
+                </div>
+                <span className="text-3xl text-g1 ml-2">›</span>
               </div>
-              <span className="text-3xl text-g1 ml-2">›</span>
-            </div>
-          </Link>
+            </Link>
+          )}
 
           {/* 다른 의심 진단 */}
           {otherSuspects.length > 0 && (

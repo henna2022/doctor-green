@@ -115,9 +115,11 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
         ) : items.length > 0 ? (
           <div className="flex flex-col gap-2.5">
             {items.map((item) => (
-              <Link
+              <a
                 key={item.sickKey}
-                href={`/dodam/${type}/${item.sickKey}`}
+                href={`https://ncpms.rda.go.kr/mobile/MobileSicknsDtlR.ms?dtlKey=${item.sickKey}&totalSearchYn=Y`}
+                target="_blank"
+                rel="noopener noreferrer"
                 className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-brd hover:border-g3 transition"
               >
                 {/* 썸네일 */}
@@ -138,8 +140,8 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
                     <p className="text-[10px] text-txt3 italic truncate">{item.nameSci}</p>
                   )}
                 </div>
-                <span className="text-txt3 self-center">›</span>
-              </Link>
+                <span className="text-txt3 self-center text-xs">↗</span>
+              </a>
             ))}
           </div>
         ) : (
