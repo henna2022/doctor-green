@@ -3,31 +3,51 @@
 import Link from "next/link";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
+import {
+  MapPin,
+  ChevronDown,
+  ChevronRight,
+  Droplets,
+  Sun,
+  Cloud,
+  CloudRain,
+} from "lucide-react";
 import BottomNav from "@/components/BottomNav";
-import { getCurrentUser, signOut } from "@/lib/auth";
+import {
+  PlantIcon,
+  CaterpillarIcon,
+  FirstAidIcon,
+  RealtimeIcon,
+} from "@/components/HomeIllustrations";
+import { getCurrentUser } from "@/lib/auth";
 import {
   fetchWeather,
   fetchLocationName,
   fetchNearbyPests,
   fetchPestForecast,
-  weatherEmoji,
   WeatherData,
 } from "@/lib/api";
 import { generateAlerts, Alert } from "@/lib/alerts";
 
-const DODAM_MENU = [
-  { href: "/dodam/disease", emoji: "🌿", label: "질병 도감", color: "#E8F8F0" },
-  { href: "/dodam/pest", emoji: "🐛", label: "해충 도감", color: "#FFF4E5" },
-  { href: "/dodam/remedy", emoji: "💊", label: "방제 정보", color: "#E5F0FF" },
-  { href: "/realtime", emoji: "📡", label: "실시간 분석", color: "#F0E8F8" },
+const MENU = [
+  { href: "/dodam/disease", label: "질병도감", bg: "#E4F1E9", Illust: PlantIcon },
+  { href: "/dodam/pest", label: "해충 도감", bg: "#FBF5EB", Illust: CaterpillarIcon },
+  { href: "/dodam/remedy", label: "방제 정보", bg: "#FBF5EB", Illust: FirstAidIcon },
+  { href: "/realtime", label: "실시간 분석", bg: "#FBF5EB", Illust: RealtimeIcon },
 ];
+
+function WeatherIcon({ weather }: { weather: WeatherData | null }) {
+  const cls = "text-txt2";
+  if (weather?.pty != null && weather.pty > 0) return <CloudRain size={18} className={cls} />;
+  if (weather?.sky === 3 || weather?.sky === 4) return <Cloud size={18} className={cls} />;
+  return <Sun size={18} className={cls} />;
+}
 
 export default function HomePage() {
   const router = useRouter();
 
-  const [userName, setUserName] = useState("");
   const [userCrops, setUserCrops] = useState<string[]>([]);
-  const [locationName, setLocationName] = useState("위치 불러오는 중...");
+  const [locationName, setLocationName] = useState("불러오는 중");
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -40,7 +60,6 @@ export default function HomePage() {
         router.push("/");
         return;
       }
-      setUserName(user.profile?.name || "농부");
       setUserCrops(user.profile?.farm_crops || []);
       setLoading(false);
     }
@@ -77,18 +96,18 @@ export default function HomePage() {
       },
       (err) => {
         console.error("Geolocation error:", err.code, err.message);
-        
+
         // 위치 못 받으면 기본 위치 사용 (안성시 - 한경대 위치)
         const fallbackLat = 37.0079;
         const fallbackLon = 127.2797;
-        
+
         Promise.all([
           fetchLocationName(fallbackLat, fallbackLon),
           fetchWeather(fallbackLat, fallbackLon),
           fetchNearbyPests(fallbackLat, fallbackLon),
           userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
         ]).then(([name, weatherData, pests, forecasts]) => {
-          setLocationName(name + " (기본 위치)");
+          setLocationName(name);
           setWeather(weatherData);
           setAlerts(
             generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
@@ -96,18 +115,9 @@ export default function HomePage() {
           setLoadingData(false);
         });
       },
-      { 
-        enableHighAccuracy: false, 
-        timeout: 15000,      // 8초 → 15초로 늘림
-        maximumAge: 600000 
-      }
+      { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
     );
   }, [loading, userCrops]);
-
-  const handleLogout = async () => {
-    await signOut();
-    router.push("/");
-  };
 
   if (loading) {
     return (
@@ -119,48 +129,36 @@ export default function HomePage() {
 
   return (
     <div className="phone-frame">
-      <header className="px-5 pt-6 pb-4 bg-bg-card border-b border-brd">
-        <div className="flex items-center gap-2 mb-1">
-          <span className="text-lg">📍</span>
-          <div className="flex-1">
-            <p className="text-sm font-bold">{locationName}</p>
-            {loadingData ? (
-              <p className="text-xs text-txt3">날씨 정보 불러오는 중...</p>
-            ) : weather ? (
-              <p className="text-xs text-txt2">
-                {weatherEmoji(weather.sky, weather.pty)} {weather.temp}°C
-                {weather.tmax !== null && weather.tmin !== null &&
-                  ` (${weather.tmin}° / ${weather.tmax}°)`}
-                {weather.hum !== null && ` · 습도 ${weather.hum}%`}
-              </p>
-            ) : (
-              <p className="text-xs text-txt3">날씨 정보 없음</p>
-            )}
-          </div>
-          <button onClick={handleLogout} className="text-xs text-txt3 underline">
-            로그아웃
+      {/* 헤더 — 위치 + 날씨 */}
+      <header className="px-5 pt-5 pb-3.5 bg-bg-card border-b border-brd">
+        <div className="flex items-center justify-between">
+          <button className="flex items-center gap-1.5" type="button">
+            <MapPin size={20} className="text-g3" fill="#4ECAA0" strokeWidth={1.5} />
+            <span className="text-lg font-extrabold text-txt">{locationName}</span>
+            <ChevronDown size={18} className="text-txt2" />
           </button>
+
+          <div className="flex items-center gap-3.5 text-txt2">
+            <span className="flex items-center gap-1 text-sm font-medium">
+              <WeatherIcon weather={weather} />
+              {weather ? `${weather.temp}°C` : "--"}
+            </span>
+            <span className="flex items-center gap-1 text-sm font-medium">
+              <Droplets size={18} className="text-txt2" />
+              {weather?.hum != null ? `${weather.hum}%` : "--"}
+            </span>
+          </div>
         </div>
-        <p className="text-xs text-txt3 mt-2">
-          안녕하세요, <span className="font-bold text-g1">{userName}</span>님 🌿
-        </p>
       </header>
 
-      <main className="flex-1 px-5 py-5 pb-2">
-        {/* 오늘의 알림 - 제목만, 클릭 시 상세페이지 */}
-        <section className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-base font-extrabold">🔔 오늘의 알림</h2>
-            {!loadingData && alerts.length > 0 && (
-              <Link href="/notify" className="text-xs text-g2">
-                전체보기 ›
-              </Link>
-            )}
-          </div>
+      <main className="flex-1 px-5 pt-6 pb-3">
+        {/* 오늘의 알림 */}
+        <section className="mb-7">
+          <h2 className="text-lg font-extrabold mb-3.5">오늘의 알림</h2>
 
-          <div className="flex flex-col gap-2">
+          <div className="flex flex-col gap-2.5">
             {loadingData ? (
-              <div className="p-4 rounded-2xl bg-bg-card border border-brd text-center">
+              <div className="p-4 rounded-2xl bg-[#F3F3EF] text-center">
                 <p className="text-sm text-txt3">알림을 불러오는 중...</p>
               </div>
             ) : alerts.length > 0 ? (
@@ -168,21 +166,16 @@ export default function HomePage() {
                 <Link
                   key={i}
                   href={`/notify?focus=${i}`}
-                  className={`p-3.5 rounded-2xl border-l-4 flex items-center justify-between gap-2 ${
-                    a.kind === "warn" ? "bg-orange/5 border-orange" : "bg-g5 border-g3"
-                  }`}
+                  className="flex items-center gap-3 p-4 rounded-2xl bg-[#F3F3EF] active:bg-[#ECECE7] transition-colors"
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <span
-                      className={`text-[10px] font-bold px-2 py-0.5 rounded-full shrink-0 ${
-                        a.kind === "warn" ? "bg-orange text-white" : "bg-g3 text-white"
-                      }`}
-                    >
-                      {a.badge}
-                    </span>
-                    <span className="text-sm font-bold truncate">{a.title}</span>
-                  </div>
-                  <span className="text-txt3 shrink-0">›</span>
+                  <span
+                    className="text-[11px] font-bold text-white px-2.5 py-1 rounded-full shrink-0"
+                    style={{ background: a.kind === "warn" ? "#E07856" : "#4ECAA0" }}
+                  >
+                    {a.badge}
+                  </span>
+                  <span className="flex-1 text-[15px] font-bold text-txt truncate">{a.title}</span>
+                  <ChevronRight size={20} className="text-txt3 shrink-0" />
                 </Link>
               ))
             ) : (
@@ -193,33 +186,21 @@ export default function HomePage() {
           </div>
         </section>
 
-        <Link
-          href="/diagnose"
-          className="block w-full mb-6 rounded-3xl p-5 text-white relative overflow-hidden"
-          style={{ background: "linear-gradient(135deg, #1B5E4B 0%, #4ECAA0 100%)" }}
-        >
-          <div className="flex items-center gap-3">
-            <div className="text-4xl">📷</div>
-            <div className="flex-1">
-              <h3 className="text-base font-extrabold mb-0.5">AI 작물 진단</h3>
-              <p className="text-xs opacity-90">사진 한 장으로 병해충을 확인하세요</p>
-            </div>
-            <span className="text-2xl">›</span>
-          </div>
-        </Link>
-
-        <section className="mb-4">
-          <h2 className="text-base font-extrabold mb-3">📚 알아보기</h2>
-          <div className="grid grid-cols-2 gap-2.5">
-            {DODAM_MENU.map((item) => (
+        {/* 알아보기 */}
+        <section className="mb-2">
+          <h2 className="text-lg font-extrabold mb-3.5">알아보기</h2>
+          <div className="grid grid-cols-2 gap-3.5">
+            {MENU.map(({ href, label, bg, Illust }) => (
               <Link
-                key={item.href}
-                href={item.href}
-                className="flex flex-col items-center justify-center py-5 rounded-2xl hover:scale-105 transition-transform"
-                style={{ background: item.color }}
+                key={href}
+                href={href}
+                className="flex flex-col items-center justify-between rounded-[20px] pt-7 pb-5 px-4 active:scale-[0.98] transition-transform"
+                style={{ background: bg }}
               >
-                <span className="text-3xl mb-1.5">{item.emoji}</span>
-                <span className="text-sm font-bold text-txt">{item.label}</span>
+                <div className="flex-1 flex items-center justify-center">
+                  <Illust className="w-[72px] h-[72px]" />
+                </div>
+                <span className="mt-4 text-[15px] font-bold text-txt">{label}</span>
               </Link>
             ))}
           </div>

@@ -17,7 +17,7 @@ export default function BottomNav() {
   return (
     <nav
       className="flex flex-shrink-0 pt-2.5 pb-4 px-0"
-      style={{ background: "var(--color-g1)" }}
+      style={{ background: "#7C9A82" }}
     >
       {TABS.map(({ href, Icon, label }) => {
         const isActive = pathname === href || pathname.startsWith(href + "/");
