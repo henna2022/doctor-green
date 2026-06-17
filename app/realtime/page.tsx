@@ -177,15 +177,33 @@ export default function RealtimePage() {
                 ))}
               </select>
 
-              <label className="block text-sm font-bold mb-1">Blynk Auth Token</label>
-              <p className="text-xs text-txt3 mb-2">실제 디바이스 연결 전엔 <code className="bg-bg-card px-1 rounded">DEMO</code>로 시뮬레이션</p>
-              <input
-                type="text"
-                value={blynkToken}
-                onChange={(e) => setBlynkToken(e.target.value)}
-                placeholder="DEMO 또는 실제 Blynk 토큰"
-                className="w-full px-3.5 py-3 border-2 border-brd rounded-xl text-sm bg-bg-card focus:border-g3 outline-none transition mb-4 font-mono"
-              />
+              <label className="block text-sm font-bold mb-2">연결 모드</label>
+              <p className="text-xs text-txt3 mb-2">실제 센서(헥사보드)를 붙이기 전엔 <code className="bg-bg-card px-1 rounded">DEMO</code>로 시뮬레이션돼요.</p>
+              <div className="grid grid-cols-2 gap-1.5 mb-4">
+                <button
+                  type="button"
+                  onClick={() => setBlynkToken("DEMO")}
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                    blynkToken === "DEMO" ? "bg-g5 border-g3 text-g1" : "border-brd text-txt2 bg-bg-card"
+                  }`}
+                >
+                  🧪 DEMO (시뮬레이션)
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setBlynkToken("REAL")}
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                    blynkToken !== "DEMO" ? "bg-g5 border-g3 text-g1" : "border-brd text-txt2 bg-bg-card"
+                  }`}
+                >
+                  📡 실제 센서
+                </button>
+              </div>
+              {blynkToken !== "DEMO" && (
+                <div className="mb-4 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed">
+                  💡 헥사보드 펌웨어의 <code className="bg-bg-card px-1 rounded">DEVICE_ID</code>를 이 디바이스 UUID와 똑같이 맞춰야 데이터가 들어와요.
+                </div>
+              )}
 
               {/* 카메라 타입 선택 */}
               <label className="block text-sm font-bold mb-2">📷 카메라</label>

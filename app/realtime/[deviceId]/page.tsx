@@ -7,7 +7,6 @@ import {
   getDevice,
   readSensors,
   writeActuator,
-  saveSensorLog,
   getSensorLogs,
   Device,
   SensorReading,
@@ -25,7 +24,6 @@ import {
 } from "recharts";
 
 const POLL_INTERVAL = 5000;
-const LOG_INTERVAL = 60000;
 
 export default function DeviceDetailPage() {
   const router = useRouter();
@@ -47,17 +45,10 @@ export default function DeviceDetailPage() {
   const [cameraError, setCameraError] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  const lastLogRef = useRef<number>(0);
-
-  // 센서 폴링
+  // 센서 폴링 (Supabase sensor_readings 최신값)
   const poll = useCallback(async () => {
     const r = await readSensors(deviceId);
     setReading(r);
-    const now = Date.now();
-    if (r.ok && now - lastLogRef.current > LOG_INTERVAL) {
-      lastLogRef.current = now;
-      await saveSensorLog(deviceId, r);
-    }
   }, [deviceId]);
 
   useEffect(() => {

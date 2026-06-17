@@ -72,47 +72,63 @@ export async function deleteDevice(id: string) {
   return { error: null };
 }
 
-// ━━━ 센서 읽기 (Supabase sensor_readings) ━━━
+// DEMO 디바이스용 시뮬레이션 값 (실제 하드웨어 없이 화면 확인용)
+function simulate(): SensorReading {
+  const baseTemp = 22 + Math.sin(Date.now() / 60000) * 3;
+  const baseHum = 60 + Math.cos(Date.now() / 50000) * 10;
+  const baseSoil = 50 + Math.sin(Date.now() / 70000) * 15;
+  return {
+    temp: parseFloat((baseTemp + Math.random() * 2).toFixed(1)),
+    hum: parseFloat((baseHum + Math.random() * 5).toFixed(1)),
+    soil: parseFloat((baseSoil + Math.random() * 5).toFixed(1)),
+    ledOn: false,
+    fanOn: false,
+    ok: true,
+  };
+}
+
+// ━━━ 센서 읽기 (Supabase sensor_readings 최신 1건) ━━━
+// 헥사보드(ESP32)가 sensor_readings 테이블에 직접 POST 한 값을 읽음.
 export async function readSensors(deviceId: string): Promise<SensorReading> {
-  try {
-    const res = await fetch(`http://localhost:5001/api/blynk/read?deviceId=${deviceId}`);
-    if (!res.ok) throw new Error(`read failed: ${res.status}`);
-    return await res.json();
-  } catch (e) {
-    console.error("readSensors error:", e);
-    return { temp: null, hum: null, soil: null, ledOn: false, fanOn: false, ok: false };
+  const { data, error } = await supabase
+    .from("sensor_readings")
+    .select("temp, hum, soil, recorded_at")
+    .eq("device_id", deviceId)
+    .order("recorded_at", { ascending: false })
+    .limit(1);
+
+  const row = data?.[0];
+  if (!error && row) {
+    return {
+      temp: row.temp ?? null,
+      hum: row.hum ?? null,
+      soil: row.soil ?? null,
+      ledOn: false,   // 제어 명령 수신 경로 미구현
+      fanOn: false,
+      ok: true,
+    };
   }
+
+  // 데이터가 없으면 DEMO 디바이스인지 확인 → 시뮬레이션
+  const { data: dev } = await supabase
+    .from("devices")
+    .select("blynk_token")
+    .eq("id", deviceId)
+    .single();
+  if (dev?.blynk_token === "DEMO") return simulate();
+
+  return { temp: null, hum: null, soil: null, ledOn: false, fanOn: false, ok: false };
 }
 
 // ━━━ 액추에이터 제어 ━━━
-// pin: 'led' | 'fan', value: true(켜기) / false(끄기)
-export async function writeActuator(deviceId: string, pin: "led" | "fan", value: boolean) {
-  try {
-    const res = await fetch("http://localhost:5001/api/blynk/write", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ deviceId, pin, value }),
-    });
-    if (!res.ok) return { error: "쓰기 실패" };
-    return { error: null };
-  } catch (e) {
-    console.error("writeActuator error:", e);
-    return { error: "통신 오류" };
-  }
-}
-
-// ━━━ 센서 로그 저장 (DB) ━━━
-export async function saveSensorLog(deviceId: string, reading: SensorReading) {
-  if (!reading.ok) return;
-  await supabase.from("sensor_logs").insert({
-    device_id: deviceId,
-    temp: reading.temp,
-    hum: reading.hum,
-    soil: reading.soil,
-  });
+// 현재 펌웨어는 센서 송신만 하고 명령 수신은 미구현이라 제어는 준비 중 상태.
+// (구현하려면 ESP32가 Supabase commands 테이블을 폴링하는 경로가 필요)
+export async function writeActuator(_deviceId: string, _pin: "led" | "fan", _value: boolean) {
+  return { error: "원격 제어는 아직 준비 중이에요 (펌웨어 명령 수신 미구현)" };
 }
 
 // ━━━ 센서 로그 조회 (차트용, 최근 N개) ━━━
+// ESP32가 sensor_readings 에 직접 기록하므로 별도 저장 없이 그대로 조회.
 export interface SensorLog {
   temp: number | null;
   hum: number | null;
@@ -122,12 +138,19 @@ export interface SensorLog {
 
 export async function getSensorLogs(deviceId: string, limit = 30): Promise<SensorLog[]> {
   const { data, error } = await supabase
-    .from("sensor_logs")
-    .select("temp, hum, soil, measured_at")
+    .from("sensor_readings")
+    .select("temp, hum, soil, recorded_at")
     .eq("device_id", deviceId)
-    .order("measured_at", { ascending: false })
+    .order("recorded_at", { ascending: false })
     .limit(limit);
   if (error) return [];
-  // 차트는 오름차순이 보기 좋음
-  return (data || []).reverse();
+  // recorded_at → measured_at 로 맞추고, 차트는 오름차순이 보기 좋음
+  return (data || [])
+    .map((r) => ({
+      temp: r.temp ?? null,
+      hum: r.hum ?? null,
+      soil: r.soil ?? null,
+      measured_at: r.recorded_at,
+    }))
+    .reverse();
 }
