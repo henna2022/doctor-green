@@ -90,12 +90,23 @@ function simulate(): SensorReading {
 // ━━━ 센서 읽기 (Supabase sensor_readings 최신 1건) ━━━
 // 헥사보드(ESP32)가 sensor_readings 테이블에 직접 POST 한 값을 읽음.
 export async function readSensors(deviceId: string): Promise<SensorReading> {
-  const { data, error } = await supabase
-    .from("sensor_readings")
-    .select("temp, hum, soil, recorded_at")
-    .eq("device_id", deviceId)
-    .order("recorded_at", { ascending: false })
-    .limit(1);
+  // 센서값(sensor_readings)과 제어상태(devices.led_on/fan_on)를 함께 읽음
+  const [{ data, error }, { data: dev }] = await Promise.all([
+    supabase
+      .from("sensor_readings")
+      .select("temp, hum, soil, recorded_at")
+      .eq("device_id", deviceId)
+      .order("recorded_at", { ascending: false })
+      .limit(1),
+    supabase
+      .from("devices")
+      .select("blynk_token, led_on, fan_on")
+      .eq("id", deviceId)
+      .single(),
+  ]);
+
+  const ledOn = dev?.led_on ?? false;
+  const fanOn = dev?.fan_on ?? false;
 
   const row = data?.[0];
   if (!error && row) {
@@ -103,28 +114,28 @@ export async function readSensors(deviceId: string): Promise<SensorReading> {
       temp: row.temp ?? null,
       hum: row.hum ?? null,
       soil: row.soil ?? null,
-      ledOn: false,   // 제어 명령 수신 경로 미구현
-      fanOn: false,
+      ledOn,
+      fanOn,
       ok: true,
     };
   }
 
-  // 데이터가 없으면 DEMO 디바이스인지 확인 → 시뮬레이션
-  const { data: dev } = await supabase
-    .from("devices")
-    .select("blynk_token")
-    .eq("id", deviceId)
-    .single();
-  if (dev?.blynk_token === "DEMO") return simulate();
+  // 실데이터가 없는 DEMO 디바이스 → 시뮬레이션 (제어상태는 유지)
+  if (dev?.blynk_token === "DEMO") return { ...simulate(), ledOn, fanOn };
 
-  return { temp: null, hum: null, soil: null, ledOn: false, fanOn: false, ok: false };
+  return { temp: null, hum: null, soil: null, ledOn, fanOn, ok: false };
 }
 
 // ━━━ 액추에이터 제어 ━━━
-// 현재 펌웨어는 센서 송신만 하고 명령 수신은 미구현이라 제어는 준비 중 상태.
-// (구현하려면 ESP32가 Supabase commands 테이블을 폴링하는 경로가 필요)
-export async function writeActuator(_deviceId: string, _pin: "led" | "fan", _value: boolean) {
-  return { error: "원격 제어는 아직 준비 중이에요 (펌웨어 명령 수신 미구현)" };
+// 앱이 devices.led_on/fan_on 을 업데이트 → ESP32가 그 값을 폴링해 GPIO 제어.
+export async function writeActuator(deviceId: string, pin: "led" | "fan", value: boolean) {
+  const col = pin === "led" ? "led_on" : "fan_on";
+  const { error } = await supabase
+    .from("devices")
+    .update({ [col]: value })
+    .eq("id", deviceId);
+  if (error) return { error: error.message };
+  return { error: null };
 }
 
 // ━━━ 센서 로그 조회 (차트용, 최근 N개) ━━━
