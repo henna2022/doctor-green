@@ -4,6 +4,8 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { saveDiagnosis } from "@/lib/diagnoses";
 import { searchDodam } from "@/lib/dodam";
+import { getMyDevices, readSensors } from "@/lib/sensors";
+import { assessEnvironment, getGuide, EnvAssessment } from "@/lib/cropGuide";
 import Link from "next/link";
 
 // 진단 신뢰도 임계값 — 이 미만이면 판독 불가 처리
@@ -56,6 +58,7 @@ export default function DiagnoseResultPage() {
   const [errorMsg, setErrorMsg] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [sensors, setSensors] = useState<{ temp: number | null; hum: number | null; soil: number | null } | null>(null);
 
   // NCPMS sickKey 매칭 (detail은 호출 X - SVC05 작동 안 함)
   const [ncpmsLoading, setNcpmsLoading] = useState(false);
@@ -74,6 +77,19 @@ export default function DiagnoseResultPage() {
     setImage(img);
     setCrop(cropName);
     setCropId(savedCropId || null);
+
+    // 종합 평가용 센서값 로드 (스냅샷에서 넘어온 값 우선, 없으면 내 디바이스 최신값)
+    (async () => {
+      const raw = sessionStorage.getItem("diagnose_sensors");
+      if (raw) {
+        try { setSensors(JSON.parse(raw)); return; } catch {}
+      }
+      const devices = await getMyDevices();
+      if (devices.length > 0) {
+        const r = await readSensors(devices[0].id);
+        if (r.ok) setSensors({ temp: r.temp, hum: r.hum, soil: r.soil });
+      }
+    })();
 
     (async () => {
       try {
@@ -163,81 +179,40 @@ export default function DiagnoseResultPage() {
     );
   }
 
-  // ━━━ 병해 미감지 화면 ━━━
-  if (stage === "not_detected") {
+  // ━━━ 병해 미감지 / 판독불가 → 종합 건강 평가 화면 ━━━
+  if (stage === "not_detected" || stage === "low_confidence") {
+    const unclear = stage === "low_confidence";
     return (
-      <div className="phone-frame">
-        <header className="flex items-center justify-between px-5 py-4 border-b border-brd">
+      <div className="phone-frame overflow-y-auto">
+        <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
           <Link href="/diagnose" className="text-2xl">‹</Link>
           <h1 className="text-base font-bold">진단 결과</h1>
           <div className="w-6" />
         </header>
 
-        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
+        <main className="flex-1 px-5 py-5">
           {image && (
-            <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
+            <div className="w-full aspect-video rounded-2xl overflow-hidden border border-brd mb-4 bg-bg-card">
               {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="진단" className="w-full h-full object-cover" />
+              <img src={image} alt="진단" className="w-full h-full object-contain" />
             </div>
           )}
-          <div className="text-5xl mb-3">🌱</div>
-          <h2 className="text-xl font-bold mb-2">건강한 상태로 보여요</h2>
-          <p className="text-sm text-txt2 mb-6 leading-relaxed">
-            병해를 감지하지 못했어요.<br />
-            잎이나 과실을 더 가까이 찍으면<br />
-            정확도가 올라갈 수 있어요.
-          </p>
-          <div className="flex flex-col gap-2.5 w-full">
+
+          {unclear && (
+            <div className="mb-4 p-3 rounded-xl bg-orange/10 text-xs text-orange leading-relaxed">
+              🔍 사진이 흐릿해 병해 판독은 어려웠어요. 잎·과실을 더 가까이 선명하게 찍으면 정확해져요.
+              <br />(아래 환경 평가는 센서 기준이라 그대로 유효해요)
+            </div>
+          )}
+
+          <HealthAssessment detected={false} sensors={sensors} cropName={crop} />
+
+          <div className="flex flex-col gap-2.5 mt-2">
             <Link
               href="/diagnose"
               className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
             >
-              다시 진단하기
-            </Link>
-            <Link
-              href="/home"
-              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
-            >
-              홈으로
-            </Link>
-          </div>
-        </main>
-      </div>
-    );
-  }
-
-  // ━━━ ✨ 판독 불가 화면 (신뢰도 미달) ━━━
-  if (stage === "low_confidence") {
-    return (
-      <div className="phone-frame">
-        <header className="flex items-center justify-between px-5 py-4 border-b border-brd">
-          <Link href="/diagnose" className="text-2xl">‹</Link>
-          <h1 className="text-base font-bold">진단 결과</h1>
-          <div className="w-6" />
-        </header>
-
-        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
-          {image && (
-            <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="진단" className="w-full h-full object-cover" />
-            </div>
-          )}
-          <div className="text-5xl mb-3">🔍</div>
-          <h2 className="text-xl font-bold mb-2">판독이 어려워요</h2>
-          <p className="text-sm text-txt2 mb-6 leading-relaxed">
-            이미지에서 딸기 병해를<br />
-            명확히 찾지 못했어요.<br />
-            <br />
-            <span className="text-g1 font-bold">딸기 잎이나 과실</span>이 잘 보이도록<br />
-            더 가까이, 선명하게 촬영해주세요.
-          </p>
-          <div className="flex flex-col gap-2.5 w-full">
-            <Link
-              href="/diagnose"
-              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
-            >
-              📸 다시 촬영하기
+              📸 다시 진단하기
             </Link>
             <Link
               href="/home"
@@ -431,6 +406,15 @@ export default function DiagnoseResultPage() {
             </p>
           )}
 
+          {/* 종합 건강 평가 (병해 + 센서) */}
+          <HealthAssessment
+            detected={true}
+            diseaseName={result.disease_name}
+            severity={result.severity}
+            sensors={sensors}
+            cropName={crop}
+          />
+
           {/* NCPMS 매칭 로딩 */}
           {ncpmsLoading && (
             <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd flex items-center gap-3">
@@ -536,5 +520,105 @@ export default function DiagnoseResultPage() {
         </div>
       </main>
     </div>
+  );
+}
+
+// ━━━ 종합 건강 평가 (병해 결과 + 센서 환경) ━━━
+function HealthAssessment({
+  detected,
+  diseaseName,
+  severity,
+  sensors,
+  cropName,
+}: {
+  detected: boolean;
+  diseaseName?: string;
+  severity?: string;
+  sensors: { temp: number | null; hum: number | null; soil: number | null } | null;
+  cropName: string;
+}) {
+  const guide = getGuide(cropName);
+  const env: EnvAssessment | null = sensors ? assessEnvironment(sensors, cropName) : null;
+
+  const palette = (l: string) =>
+    l === "bad"
+      ? { bg: "#FFEAEA", color: "#E05757" }
+      : l === "warn"
+      ? { bg: "#FFF4E5", color: "#D98A00" }
+      : { bg: "#E8F8F0", color: "#2E9E76" };
+
+  const envStatus = env?.status ?? "ok";
+  let emoji = "🌱";
+  let title = `${guide.label}에서 병해는 안 보여요`;
+  let sub = "더 가까이 선명하게 찍으면 정확도가 올라가요.";
+  let tone = "ok";
+
+  if (detected) {
+    emoji = "⚠️";
+    title = `${diseaseName ?? "병해"}가 의심돼요${severity ? ` (${severity})` : ""}`;
+    sub = "아래 도감에서 방제법을 확인하고, 환경도 함께 관리하세요.";
+    tone = "warn";
+  } else if (env) {
+    if (envStatus === "ok") {
+      emoji = "🎉";
+      title = `${guide.label}가 잘 자라고 있어요!`;
+      sub = "병해도 없고 온·습·토양도 적정 범위예요. 지금처럼 관리해주세요.";
+      tone = "ok";
+    } else if (envStatus === "warn") {
+      emoji = "🌿";
+      title = "병해는 없지만 환경에 약간 주의가 필요해요";
+      sub = "아래 항목을 살짝 조정해주세요.";
+      tone = "warn";
+    } else {
+      emoji = "🚨";
+      title = "병해는 없지만 환경이 좋지 않아요";
+      sub = "아래 빨간 항목을 먼저 해결해주세요.";
+      tone = "bad";
+    }
+  }
+
+  const c = palette(tone);
+
+  return (
+    <section className="mb-5">
+      <h3 className="text-sm font-bold mb-2">🌱 종합 건강 평가</h3>
+
+      <div className="p-4 rounded-2xl border-2" style={{ background: c.bg, borderColor: c.color + "55" }}>
+        <div className="flex items-start gap-2">
+          <span className="text-2xl leading-none">{emoji}</span>
+          <div>
+            <p className="text-sm font-extrabold" style={{ color: c.color }}>{title}</p>
+            <p className="text-xs text-txt2 mt-0.5 leading-relaxed">{sub}</p>
+          </div>
+        </div>
+      </div>
+
+      {env ? (
+        <div className="mt-2 flex flex-col gap-1.5">
+          {env.items.map((it, i) => {
+            const lc = palette(it.level);
+            return (
+              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-bg-card border border-brd">
+                <span className="text-lg leading-none">{it.icon}</span>
+                <div className="flex-1">
+                  <div className="flex items-center gap-1.5">
+                    <span className="text-xs font-bold">{it.kind}</span>
+                    <span className="text-xs font-extrabold" style={{ color: lc.color }}>
+                      {it.value}{it.kind === "온도" ? "°C" : "%"}
+                    </span>
+                  </div>
+                  <p className="text-[11px] text-txt2 leading-snug mt-0.5">{it.text}</p>
+                </div>
+              </div>
+            );
+          })}
+          <p className="text-[10px] text-txt3 text-center mt-0.5">{guide.emoji} {guide.tip}</p>
+        </div>
+      ) : (
+        <p className="mt-2 text-[11px] text-txt3 text-center leading-relaxed">
+          연결된 센서가 없어 환경 평가는 생략했어요.<br />실시간 화면에서 📸 스냅샷으로 진단하면 센서값이 함께 반영돼요.
+        </p>
+      )}
+    </section>
   );
 }

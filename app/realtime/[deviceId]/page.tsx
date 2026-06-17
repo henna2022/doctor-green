@@ -192,6 +192,16 @@ export default function DeviceDetailPage() {
 
       sessionStorage.setItem("diagnose_image", dataUrl);
       sessionStorage.setItem("diagnose_crop", crop?.crop_name || "미지정");
+      sessionStorage.setItem("diagnose_crop_id", crop?.id || "");
+      // 현재 센서값도 함께 넘겨서 종합 건강 평가에 활용
+      if (reading) {
+        sessionStorage.setItem(
+          "diagnose_sensors",
+          JSON.stringify({ temp: reading.temp, hum: reading.hum, soil: reading.soil })
+        );
+      } else {
+        sessionStorage.removeItem("diagnose_sensors");
+      }
       router.push("/diagnose/result");
     } catch (e) {
       console.error(e);
@@ -393,6 +403,21 @@ export default function DeviceDetailPage() {
               <p className="text-sm text-txt whitespace-pre-line leading-relaxed">
                 {aiAdvice(reading, crop?.crop_name)}
               </p>
+            </section>
+
+            {/* 디바이스 ID — 보드(펌웨어)를 이 디바이스에 연결할 때 사용 */}
+            <section className="mb-5">
+              <p className="text-[11px] text-txt3 mb-1">🔌 디바이스 ID (보드 펌웨어 연결용)</p>
+              <button
+                onClick={() => {
+                  navigator.clipboard?.writeText(device.id);
+                  alert("디바이스 ID가 복사됐어요!\n펌웨어 config.h 의 DEVICE_ID 에 붙여넣으면 보드가 이 디바이스로 연결돼요.");
+                }}
+                className="w-full text-left px-3 py-2.5 rounded-xl bg-bg-card border border-brd hover:border-g3 transition flex items-center justify-between gap-2"
+              >
+                <span className="text-[11px] font-mono text-txt2 break-all">{device.id}</span>
+                <span className="text-xs text-g1 font-bold shrink-0">📋 복사</span>
+              </button>
             </section>
           </>
         )}
