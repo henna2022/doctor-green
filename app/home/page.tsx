@@ -15,8 +15,6 @@ import {
 import BottomNav from "@/components/BottomNav";
 import {
   PlantIcon,
-  CaterpillarIcon,
-  FirstAidIcon,
   RealtimeIcon,
 } from "@/components/HomeIllustrations";
 import { getCurrentUser } from "@/lib/auth";
@@ -30,10 +28,8 @@ import {
 import { generateAlerts, Alert } from "@/lib/alerts";
 
 const MENU = [
-  { href: "/dodam/disease", label: "질병도감", bg: "#E4F1E9", Illust: PlantIcon },
-  { href: "/dodam/pest", label: "해충 도감", bg: "#FBF5EB", Illust: CaterpillarIcon },
-  { href: "/dodam/remedy", label: "방제 정보", bg: "#FBF5EB", Illust: FirstAidIcon },
-  { href: "/realtime", label: "실시간 분석", bg: "#FBF5EB", Illust: RealtimeIcon },
+  { href: "/realtime", label: "실시간 분석", bg: "#E4F1E9", Illust: RealtimeIcon },
+  { href: "/guide", label: "작물 가이드", bg: "#FBF5EB", Illust: PlantIcon },
 ];
 
 function WeatherIcon({ weather }: { weather: WeatherData | null }) {
