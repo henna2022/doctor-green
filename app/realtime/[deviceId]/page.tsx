@@ -7,7 +7,7 @@ import {
   getDevice,
   readSensors,
   writeActuator,
-  getSensorLogs,
+  getSensorHistory,
   Device,
   SensorReading,
   SensorLog,
@@ -63,7 +63,7 @@ export default function DeviceDetailPage() {
       if (d.crop_id) {
         setCrop(await getCropById(d.crop_id));
       }
-      setLogs(await getSensorLogs(deviceId, 30));
+      setLogs(await getSensorHistory(deviceId, 6, 36));
       setLoading(false);
 
       await poll();
@@ -137,7 +137,7 @@ export default function DeviceDetailPage() {
 
   useEffect(() => {
     if (activeTab === "history") {
-      getSensorLogs(deviceId, 30).then(setLogs);
+      getSensorHistory(deviceId, 6, 36).then(setLogs);
     }
   }, [activeTab, deviceId]);
 
@@ -242,6 +242,7 @@ export default function DeviceDetailPage() {
     time: new Date(l.measured_at).toLocaleTimeString("ko-KR", {
       hour: "2-digit",
       minute: "2-digit",
+      hour12: false,
     }),
     temp: l.temp,
     hum: l.hum,
@@ -424,7 +425,7 @@ export default function DeviceDetailPage() {
 
         {activeTab === "history" && (
           <>
-            <h3 className="text-sm font-bold mb-3">최근 측정 추이</h3>
+            <h3 className="text-sm font-bold mb-3">최근 6시간 추이</h3>
             {chartData.length > 1 ? (
               <>
                 <MiniChart data={chartData} dataKey="temp" name="온도(°C)" color="#F08080" />
@@ -512,7 +513,7 @@ function MiniChart({
       <ResponsiveContainer width="100%" height={120}>
         <LineChart data={data}>
           <CartesianGrid stroke="#eee" strokeDasharray="3 3" />
-          <XAxis dataKey="time" tick={{ fontSize: 10 }} />
+          <XAxis dataKey="time" tick={{ fontSize: 10 }} interval="preserveStartEnd" minTickGap={40} />
           <YAxis tick={{ fontSize: 10 }} width={30} />
           <Tooltip />
           <Line type="monotone" dataKey={dataKey} stroke={color} strokeWidth={2} dot={false} />

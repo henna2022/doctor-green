@@ -165,3 +165,27 @@ export async function getSensorLogs(deviceId: string, limit = 30): Promise<Senso
     }))
     .reverse();
 }
+
+// ━━━ 장기 추이 (N시간을 구간별 평균으로 다운샘플) ━━━
+// Supabase RPC sensor_history 사용 (시간 구간별 평균). 6시간이면 ~36개 점.
+export async function getSensorHistory(
+  deviceId: string,
+  hours = 6,
+  buckets = 36
+): Promise<SensorLog[]> {
+  const { data, error } = await supabase.rpc("sensor_history", {
+    p_device: deviceId,
+    p_hours: hours,
+    p_buckets: buckets,
+  });
+  if (error || !data) {
+    console.error("getSensorHistory error:", error?.message);
+    return [];
+  }
+  return (data as { bucket: string; temp: number | null; hum: number | null; soil: number | null }[]).map((r) => ({
+    temp: r.temp ?? null,
+    hum: r.hum ?? null,
+    soil: r.soil ?? null,
+    measured_at: r.bucket,
+  }));
+}
