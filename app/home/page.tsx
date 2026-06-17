@@ -26,6 +26,9 @@ import {
   WeatherData,
 } from "@/lib/api";
 import { generateAlerts, Alert } from "@/lib/alerts";
+import { getMyDevices } from "@/lib/sensors";
+import { getCropById } from "@/lib/crops";
+import { getDailyReport, DailyReport } from "@/lib/report";
 
 const MENU = [
   { href: "/realtime", label: "실시간 분석", bg: "#E4F1E9", Illust: RealtimeIcon },
@@ -49,6 +52,10 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [loadingData, setLoadingData] = useState(true);
 
+  const [report, setReport] = useState<DailyReport | null>(null);
+  const [reportDevice, setReportDevice] = useState<{ id: string; name: string } | null>(null);
+  const [reportLoading, setReportLoading] = useState(true);
+
   useEffect(() => {
     async function loadUser() {
       const user = await getCurrentUser();
@@ -61,6 +68,24 @@ export default function HomePage() {
     }
     loadUser();
   }, [router]);
+
+  // 오늘의 리포트 로드 (작물 연결된 실제 디바이스 기준)
+  useEffect(() => {
+    if (loading) return;
+    (async () => {
+      const devices = await getMyDevices();
+      const dev = devices.find((d) => d.blynk_token !== "DEMO") || devices[0];
+      if (!dev) {
+        setReportLoading(false);
+        return;
+      }
+      setReportDevice({ id: dev.id, name: dev.name });
+      const crop = dev.crop_id ? await getCropById(dev.crop_id) : null;
+      const rep = await getDailyReport(dev.id, crop?.crop_name);
+      setReport(rep);
+      setReportLoading(false);
+    })();
+  }, [loading]);
 
   useEffect(() => {
     if (loading) return;
@@ -148,6 +173,73 @@ export default function HomePage() {
       </header>
 
       <main className="flex-1 px-5 pt-6 pb-3">
+        {/* 오늘의 리포트 */}
+        <section className="mb-7">
+          <div className="flex items-center justify-between mb-3.5">
+            <h2 className="text-lg font-extrabold">오늘의 리포트</h2>
+            {reportDevice && <span className="text-xs text-txt3">{reportDevice.name}</span>}
+          </div>
+
+          {reportLoading ? (
+            <div className="p-4 rounded-2xl bg-[#F3F3EF] text-center">
+              <p className="text-sm text-txt3">리포트 생성 중...</p>
+            </div>
+          ) : !report || !reportDevice ? (
+            <Link href="/realtime" className="block p-4 rounded-2xl bg-[#F3F3EF] text-center">
+              <p className="text-sm text-txt3">연결된 디바이스가 없어요. 실시간 분석에서 추가해보세요 ›</p>
+            </Link>
+          ) : (
+            <Link
+              href={`/realtime/${reportDevice.id}`}
+              className="block rounded-2xl border-2 p-4 active:scale-[0.99] transition-transform"
+              style={{
+                background:
+                  report.verdict.tone === "bad" ? "#FFEAEA" : report.verdict.tone === "warn" ? "#FFF4E5" : "#E8F8F0",
+                borderColor:
+                  (report.verdict.tone === "bad" ? "#F08080" : report.verdict.tone === "warn" ? "#FFA500" : "#4ECAA0") + "66",
+              }}
+            >
+              <p
+                className="text-sm font-bold mb-3"
+                style={{ color: report.verdict.tone === "bad" ? "#E05757" : report.verdict.tone === "warn" ? "#D98A00" : "#2E9E76" }}
+              >
+                {report.verdict.text}
+              </p>
+
+              {report.hasData && (
+                <>
+                  <div className="grid grid-cols-3 gap-2">
+                    {report.env.items.map((it, i) => {
+                      const col = it.level === "bad" ? "#E05757" : it.level === "warn" ? "#D98A00" : "#2E9E76";
+                      return (
+                        <div key={i} className="rounded-xl bg-white/70 p-2.5 text-center">
+                          <div className="text-base leading-none mb-1">{it.icon}</div>
+                          <div className="text-base font-extrabold" style={{ color: col }}>
+                            {it.value}{it.kind === "온도" ? "°" : "%"}
+                          </div>
+                          <div className="text-[10px] text-txt3">{it.kind} 평균</div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {report.env.items.some((it) => it.level !== "ok") && (
+                    <div className="mt-3 flex flex-col gap-1">
+                      {report.env.items
+                        .filter((it) => it.level !== "ok")
+                        .map((it, i) => (
+                          <p key={i} className="text-[11px] text-txt2 leading-snug">• {it.text}</p>
+                        ))}
+                    </div>
+                  )}
+
+                  <p className="text-[10px] text-txt3 mt-3 text-right">오늘 {report.count}회 측정 · 자세히 ›</p>
+                </>
+              )}
+            </Link>
+          )}
+        </section>
+
         {/* 오늘의 알림 */}
         <section className="mb-7">
           <h2 className="text-lg font-extrabold mb-3.5">오늘의 알림</h2>
