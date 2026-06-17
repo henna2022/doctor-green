@@ -28,16 +28,16 @@ export async function POST(req: NextRequest) {
     });
 
     // Gradio 응답은 result.data[0]에 우리가 만든 JSON이 담겨있음
-    const data = (result.data as any[])[0];
+    const data = (result.data as unknown[])[0];
 
     return NextResponse.json(data);
-  } catch (e: any) {
+  } catch (e: unknown) {
     console.error("diagnose API error:", e);
     // ⚠️ 폴백/가짜데이터 없음 - 실패는 실패로 반환
     return NextResponse.json(
       {
         error: "진단 서버 호출 실패",
-        detail: String(e?.message ?? e),
+        detail: e instanceof Error ? e.message : String(e),
       },
       { status: 502 }
     );

@@ -102,17 +102,3 @@ export async function fetchPestForecast(crops: string[]): Promise<PestForecast[]
     return [];
   }
 }
-
-// ━━━ 헬퍼 함수 ━━━
-
-// 하늘 상태 → 이모지 + 텍스트
-export function weatherEmoji(sky: number | null, pty: number | null): string {
-  if (pty === 1) return "🌧️ 비";
-  if (pty === 2) return "🌨️ 비/눈";
-  if (pty === 3) return "❄️ 눈";
-  if (pty === 4) return "🌦️ 소나기";
-  if (sky === 1) return "☀️ 맑음";
-  if (sky === 3) return "⛅ 구름많음";
-  if (sky === 4) return "☁️ 흐림";
-  return "☀️ 맑음";
-}

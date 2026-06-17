@@ -91,19 +91,3 @@ export async function getDiagnosesByCrop(cropName: string): Promise<DiagnosisRec
   if (error) return [];
   return data || [];
 }
-
-// 특정 작물의 진단 기록 (crop_id 기준 - 정확한 매칭)
-export async function getDiagnosesByCropId(cropId: string): Promise<DiagnosisRecord[]> {
-  const { data: { user } } = await supabase.auth.getUser();
-  if (!user) return [];
-
-  const { data, error } = await supabase
-    .from("diagnoses")
-    .select("*")
-    .eq("user_id", user.id)
-    .eq("crop_id", cropId)
-    .order("diagnosed_at", { ascending: false });
-
-  if (error) return [];
-  return data || [];
-}

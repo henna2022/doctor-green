@@ -138,32 +138,12 @@ export async function writeActuator(deviceId: string, pin: "led" | "fan", value:
   return { error: null };
 }
 
-// ━━━ 센서 로그 조회 (차트용, 최근 N개) ━━━
-// ESP32가 sensor_readings 에 직접 기록하므로 별도 저장 없이 그대로 조회.
+// ━━━ 차트용 데이터 포인트 ━━━
 export interface SensorLog {
   temp: number | null;
   hum: number | null;
   soil: number | null;
   measured_at: string;
-}
-
-export async function getSensorLogs(deviceId: string, limit = 30): Promise<SensorLog[]> {
-  const { data, error } = await supabase
-    .from("sensor_readings")
-    .select("temp, hum, soil, recorded_at")
-    .eq("device_id", deviceId)
-    .order("recorded_at", { ascending: false })
-    .limit(limit);
-  if (error) return [];
-  // recorded_at → measured_at 로 맞추고, 차트는 오름차순이 보기 좋음
-  return (data || [])
-    .map((r) => ({
-      temp: r.temp ?? null,
-      hum: r.hum ?? null,
-      soil: r.soil ?? null,
-      measured_at: r.recorded_at,
-    }))
-    .reverse();
 }
 
 // ━━━ 장기 추이 (N시간을 구간별 평균으로 다운샘플) ━━━

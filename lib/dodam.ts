@@ -11,27 +11,6 @@ export interface DodamItem {
   imageUrl?: string;     // 대표 이미지
 }
 
-export interface DodamDetail {
-  sickKey: string;
-  name: string;
-  nameEn?: string;
-  nameSci?: string;
-  cropName?: string;
-  
-  // 상세 정보
-  symptoms?: string;        // 증상
-  cause?: string;           // 발생 원인/환경
-  prevention?: string;      // 예방 방법
-  
-  // 방제 방법
-  chemicalControl?: string; // 화학적 방제
-  biologicalControl?: string; // 생물학적 방제
-  culturalControl?: string;  // 경종적 방제
-  
-  // 이미지
-  imageUrls?: string[];
-}
-
 // 도감 종류
 export type DodamType = "disease" | "pest";
 
@@ -55,18 +34,6 @@ export async function searchDodam(
   } catch (e) {
     console.error("searchDodam error:", e);
     return [];
-  }
-}
-
-// 병해충 상세 조회
-export async function getDodamDetail(sickKey: string): Promise<DodamDetail | null> {
-  try {
-    const res = await fetch(`/api/ncpms/detail?sickKey=${encodeURIComponent(sickKey)}`);
-    if (!res.ok) return null;
-    return await res.json();
-  } catch (e) {
-    console.error("getDodamDetail error:", e);
-    return null;
   }
 }
 

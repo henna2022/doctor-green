@@ -70,13 +70,6 @@ export async function deleteCrop(id: string) {
   return { error: null };
 }
 
-// 메모 수정
-export async function updateCropMemo(id: string, memo: string) {
-  const { error } = await supabase.from("my_crops").update({ memo }).eq("id", id);
-  if (error) return { error: error.message };
-  return { error: null };
-}
-
 // 즐겨찾기 토글
 export async function toggleFavorite(id: string, current: boolean) {
   const { error } = await supabase
