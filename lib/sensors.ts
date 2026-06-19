@@ -146,20 +146,24 @@ export interface SensorLog {
   measured_at: string;
 }
 
-// ━━━ 장기 추이 (N시간을 구간별 평균으로 다운샘플) ━━━
-// Supabase RPC sensor_history 사용 (시간 구간별 평균). 6시간이면 ~36개 점.
-export async function getSensorHistory(
-  deviceId: string,
-  hours = 6,
-  buckets = 36
-): Promise<SensorLog[]> {
-  const { data, error } = await supabase.rpc("sensor_history", {
+// ━━━ 날짜별 하루 추이 (0~24시를 구간별 평균으로 다운샘플) ━━━
+// Supabase RPC sensor_history_range 사용. 오늘이면 현재 시각까지만.
+export async function getDayHistory(deviceId: string, dayStart: Date): Promise<SensorLog[]> {
+  const start = new Date(dayStart);
+  start.setHours(0, 0, 0, 0);
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  const now = new Date();
+  const realEnd = end > now ? now : end; // 오늘이면 현재까지
+  if (realEnd.getTime() <= start.getTime()) return [];
+
+  const { data, error } = await supabase.rpc("sensor_history_range", {
     p_device: deviceId,
-    p_hours: hours,
-    p_buckets: buckets,
+    p_start: start.toISOString(),
+    p_end: realEnd.toISOString(),
+    p_buckets: 48,
   });
   if (error || !data) {
-    console.error("getSensorHistory error:", error?.message);
+    console.error("getDayHistory error:", error?.message);
     return [];
   }
   return (data as { bucket: string; temp: number | null; hum: number | null; soil: number | null }[]).map((r) => ({

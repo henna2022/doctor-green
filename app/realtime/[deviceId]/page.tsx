@@ -7,7 +7,7 @@ import {
   getDevice,
   readSensors,
   writeActuator,
-  getSensorHistory,
+  getDayHistory,
   Device,
   SensorReading,
   SensorLog,
@@ -37,6 +37,12 @@ export default function DeviceDetailPage() {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<"live" | "history">("live");
   const [busy, setBusy] = useState(false);
+  // 이력 탭에서 보는 날짜 (기본: 오늘 0시)
+  const [selectedDay, setSelectedDay] = useState<Date>(() => {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d;
+  });
 
   // ━━━ USB 카메라 ━━━
   const [cameraDevices, setCameraDevices] = useState<MediaDeviceInfo[]>([]);
@@ -63,7 +69,6 @@ export default function DeviceDetailPage() {
       if (d.crop_id) {
         setCrop(await getCropById(d.crop_id));
       }
-      setLogs(await getSensorHistory(deviceId, 6, 36));
       setLoading(false);
 
       await poll();
@@ -135,11 +140,12 @@ export default function DeviceDetailPage() {
     }
   }, [cameraStream]);
 
+  // 이력 탭이 열려있을 때, 선택한 날짜의 0~24시 추이 로드
   useEffect(() => {
-    if (activeTab === "history") {
-      getSensorHistory(deviceId, 6, 36).then(setLogs);
-    }
-  }, [activeTab, deviceId]);
+    if (activeTab !== "history") return;
+    setLogs([]);
+    getDayHistory(deviceId, selectedDay).then(setLogs);
+  }, [activeTab, deviceId, selectedDay]);
 
   const handleToggle = async (pin: "led" | "fan") => {
     if (!reading) return;
@@ -250,6 +256,25 @@ export default function DeviceDetailPage() {
   }));
 
   const hasCamera = device.camera_type === "usb" || (device.camera_type === "mjpeg" && device.camera_url);
+
+  // ━━━ 이력 날짜 네비게이션 ━━━
+  const ymd = (d: Date) => {
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${d.getFullYear()}-${m}-${day}`;
+  };
+  const todayYmd = ymd(new Date());
+  const isToday = ymd(selectedDay) === todayYmd;
+  const dayLabel = isToday
+    ? "오늘"
+    : selectedDay.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
+  const shiftDay = (delta: number) =>
+    setSelectedDay((prev) => {
+      const d = new Date(prev);
+      d.setDate(d.getDate() + delta);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    });
 
   return (
     <div className="phone-frame overflow-y-auto">
@@ -425,7 +450,41 @@ export default function DeviceDetailPage() {
 
         {activeTab === "history" && (
           <>
-            <h3 className="text-sm font-bold mb-3">최근 6시간 추이</h3>
+            {/* 날짜 선택 */}
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <button
+                onClick={() => shiftDay(-1)}
+                className="w-9 h-9 rounded-xl border border-brd text-lg text-txt2 shrink-0"
+                aria-label="이전 날짜"
+              >
+                ‹
+              </button>
+              <input
+                type="date"
+                value={ymd(selectedDay)}
+                max={todayYmd}
+                onChange={(e) => {
+                  if (!e.target.value) return;
+                  const d = new Date(e.target.value + "T00:00:00");
+                  d.setHours(0, 0, 0, 0);
+                  setSelectedDay(d);
+                }}
+                className="flex-1 text-center text-sm font-bold border border-brd rounded-xl py-1.5 bg-bg-card outline-none"
+              />
+              <button
+                onClick={() => shiftDay(1)}
+                disabled={isToday}
+                className="w-9 h-9 rounded-xl border border-brd text-lg text-txt2 shrink-0 disabled:opacity-30"
+                aria-label="다음 날짜"
+              >
+                ›
+              </button>
+            </div>
+
+            <h3 className="text-sm font-bold mb-3">
+              {dayLabel} 추이
+              {isToday && <span className="text-xs text-txt3 font-normal"> (0시~현재)</span>}
+            </h3>
             {chartData.length > 1 ? (
               <>
                 <MiniChart data={chartData} dataKey="temp" name="온도(°C)" color="#F08080" />
@@ -459,7 +518,7 @@ export default function DeviceDetailPage() {
               </>
             ) : (
               <div className="text-center py-10 text-txt3 text-sm">
-                데이터가 부족해요. 잠시 후 다시 확인해주세요!
+                {isToday ? "아직 오늘 데이터가 부족해요." : "이 날짜엔 측정 데이터가 없어요."}
               </div>
             )}
           </>

@@ -59,3 +59,22 @@ body {
   from { opacity: 0; transform: translateY(6px); }
   to { opacity: 1; transform: none; }
 }
+
+/* /control 가상 실습실 — 데이터 전송/삽입 연출 */
+@keyframes simFlow {
+  0%   { left: 4%;  opacity: 0; }
+  15%  { opacity: 1; }
+  85%  { opacity: 1; }
+  100% { left: 92%; opacity: 0; }
+}
+
+@keyframes simPop {
+  0%   { transform: scale(0.85); opacity: 0; background-color: var(--color-g4); }
+  60%  { background-color: var(--color-g5); }
+  100% { transform: scale(1); opacity: 1; background-color: transparent; }
+}
+
+@keyframes simPulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(78, 202, 160, 0.5); }
+  50%      { box-shadow: 0 0 0 6px rgba(78, 202, 160, 0); }
+}

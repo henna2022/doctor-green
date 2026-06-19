@@ -1,0 +1,23 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev"],
+      "port": 3000
+    },
+    {
+      "name": "edu",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--prefix", "/Users/henna/Desktop/doctor-green-edu", "--", "--port", "3001"],
+      "port": 3001
+    },
+    {
+      "name": "lessonhtml",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": ["-m", "http.server", "3002", "--directory", "/Users/henna/Desktop/.lessonplan_build"],
+      "port": 3002
+    }
+  ]
+}
