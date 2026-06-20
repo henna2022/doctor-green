@@ -16,7 +16,6 @@ import BottomNav from "@/components/BottomNav";
 import {
   PlantIcon,
   RealtimeIcon,
-  LabIcon,
 } from "@/components/HomeIllustrations";
 import { getCurrentUser } from "@/lib/auth";
 import {
@@ -34,7 +33,6 @@ import { getDailyReport, DailyReport } from "@/lib/report";
 const MENU = [
   { href: "/realtime", label: "실시간 분석", bg: "#E4F1E9", Illust: RealtimeIcon },
   { href: "/guide", label: "작물 가이드", bg: "#FBF5EB", Illust: PlantIcon },
-  { href: "/control", label: "가상 실습실", bg: "#EAF6EF", Illust: LabIcon },
 ];
 
 function WeatherIcon({ weather }: { weather: WeatherData | null }) {

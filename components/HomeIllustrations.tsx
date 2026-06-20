@@ -21,33 +21,6 @@ export function PlantIcon({ className }: IllustProps) {
   );
 }
 
-/** 가상 실습실 — 새싹이 든 플라스크 */
-export function LabIcon({ className }: IllustProps) {
-  return (
-    <svg viewBox="0 0 64 64" className={className} fill="none" xmlns="http://www.w3.org/2000/svg">
-      {/* 플라스크 외형 */}
-      <path
-        d="M27 14V28L17 47C15.7 49.4 17.4 52.5 20.2 52.5H43.8C46.6 52.5 48.3 49.4 47 47L37 28V14"
-        fill="#FFFFFF"
-        stroke="#A6D8BD"
-        strokeWidth="2.5"
-        strokeLinejoin="round"
-      />
-      {/* 입구 */}
-      <rect x="24.5" y="11" width="15" height="4.5" rx="2.2" fill="#7CC9A0" />
-      {/* 용액 */}
-      <path d="M22.5 44L41.5 44L47 47C48.3 49.4 46.6 52.5 43.8 52.5H20.2C17.4 52.5 15.7 49.4 17 47L22.5 44Z" fill="#CFEFDD" />
-      {/* 새싹 */}
-      <path d="M32 44C32 40 32 36 32 33" stroke="#3FA876" strokeWidth="2.2" strokeLinecap="round" />
-      <ellipse cx="28" cy="33" rx="4.6" ry="2.4" fill="#5DBE8B" transform="rotate(-28 28 33)" />
-      <ellipse cx="36" cy="31.5" rx="4.6" ry="2.4" fill="#4CAF82" transform="rotate(28 36 31.5)" />
-      {/* 기포 */}
-      <circle cx="27" cy="48" r="1.4" fill="#7CC9A0" />
-      <circle cx="35" cy="49" r="1.1" fill="#7CC9A0" />
-    </svg>
-  );
-}
-
 /** 실시간 분석 — 카메라/스캐너 */
 export function RealtimeIcon({ className }: IllustProps) {
   return (
