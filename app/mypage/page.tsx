@@ -218,7 +218,7 @@ export default function MyPage() {
         {/* 진단 기록 링크 */}
         <Link
           href="/history"
-          className="flex items-center justify-between w-full py-3.5 px-4 rounded-2xl bg-bg-card border border-brd mb-3 hover:border-g3 transition"
+          className="flex items-center justify-between w-full py-3.5 px-4 rounded-2xl bg-bg-soft mb-3 hover:bg-[#ECECE7] transition"
         >
           <span className="text-sm font-bold">📋 내 진단 기록</span>
           <span className="text-txt3">›</span>

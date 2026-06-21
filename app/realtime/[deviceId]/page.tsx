@@ -439,7 +439,7 @@ export default function DeviceDetailPage() {
                   navigator.clipboard?.writeText(device.id);
                   alert("디바이스 ID가 복사됐어요!\n펌웨어 config.h 의 DEVICE_ID 에 붙여넣으면 보드가 이 디바이스로 연결돼요.");
                 }}
-                className="w-full text-left px-3 py-2.5 rounded-xl bg-bg-card border border-brd hover:border-g3 transition flex items-center justify-between gap-2"
+                className="w-full text-left px-3 py-2.5 rounded-xl bg-bg-soft hover:bg-[#ECECE7] transition flex items-center justify-between gap-2"
               >
                 <span className="text-[11px] font-mono text-txt2 break-all">{device.id}</span>
                 <span className="text-xs text-g1 font-bold shrink-0">📋 복사</span>
@@ -532,7 +532,7 @@ function SensorCard({
   label, icon, value, unit, color,
 }: { label: string; icon: string; value: number | null | undefined; unit: string; color: string }) {
   return (
-    <div className="p-3 rounded-2xl bg-bg-card border border-brd text-center">
+    <div className="p-3 rounded-2xl bg-bg-soft text-center">
       <div className="text-xl mb-1">{icon}</div>
       <div className="text-xl font-extrabold" style={{ color }}>
         {value != null ? value : "--"}
@@ -567,7 +567,7 @@ function MiniChart({
   data, dataKey, name, color,
 }: { data: { time: string; [k: string]: string | number | null }[]; dataKey: string; name: string; color: string }) {
   return (
-    <div className="mb-4 p-3 rounded-2xl bg-bg-card border border-brd">
+    <div className="mb-4 p-3 rounded-2xl bg-bg-soft">
       <h4 className="text-xs font-bold mb-2">{name}</h4>
       <ResponsiveContainer width="100%" height={120}>
         <LineChart data={data}>

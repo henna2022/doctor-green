@@ -142,7 +142,7 @@ export default function DiagnosePage() {
           {cropsLoading ? (
             <p className="text-xs text-txt3">불러오는 중...</p>
           ) : myCrops.length === 0 ? (
-            <div className="p-3 rounded-2xl bg-bg-card border border-brd">
+            <div className="p-3 rounded-2xl bg-bg-soft">
               <p className="text-xs text-txt2 mb-2">아직 등록된 작물이 없어요</p>
               <Link href="/crops" className="text-xs text-g1 font-bold">
                 작물 관리에서 추가하기 ›

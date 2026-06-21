@@ -417,7 +417,7 @@ export default function DiagnoseResultPage() {
 
           {/* NCPMS 매칭 로딩 */}
           {ncpmsLoading && (
-            <div className="mb-5 p-4 rounded-2xl bg-bg-card border border-brd flex items-center gap-3">
+            <div className="mb-5 p-4 rounded-2xl bg-bg-soft flex items-center gap-3">
               <div className="w-5 h-5 border-2 border-g5 border-t-g1 rounded-full animate-spin" />
               <p className="text-xs text-txt2">NCPMS 도감 매칭 중...</p>
             </div>
@@ -474,7 +474,7 @@ export default function DiagnoseResultPage() {
                     <Link
                       key={i}
                       href={`/dodam/disease?keyword=${encodeURIComponent(kw)}&crop=딸기`}
-                      className="flex items-center justify-between px-3 py-2 rounded-xl bg-bg-card border border-brd hover:bg-g5 transition"
+                      className="flex items-center justify-between px-3 py-2 rounded-xl bg-bg-soft hover:bg-g5 transition"
                     >
                       <span className="text-sm">{s.name}</span>
                       <span className="text-xs text-txt2">{Math.round(s.confidence * 100)}%</span>
@@ -598,7 +598,7 @@ function HealthAssessment({
           {env.items.map((it, i) => {
             const lc = palette(it.level);
             return (
-              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-bg-card border border-brd">
+              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-bg-soft">
                 <span className="text-lg leading-none">{it.icon}</span>
                 <div className="flex-1">
                   <div className="flex items-center gap-1.5">

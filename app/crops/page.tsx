@@ -119,7 +119,7 @@ export default function CropsPage() {
                 <div
                   key={c.id}
                   onClick={() => goDetail(c.id)}
-                  className="text-left p-4 rounded-2xl bg-bg-card border border-brd hover:border-g3 transition relative cursor-pointer"
+                  className="text-left p-4 rounded-2xl bg-bg-soft hover:bg-[#ECECE7] transition relative cursor-pointer"
                 >
                   <div className="flex items-center gap-3 mb-2">
                     <div className="w-12 h-12 rounded-xl bg-g5 flex items-center justify-center text-2xl shrink-0">

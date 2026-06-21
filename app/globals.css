@@ -16,6 +16,7 @@
   /* 배경 */
   --color-bg-main: #FAFAF7;
   --color-bg-card: #FFFFFF;
+  --color-bg-soft: #F3F3EF;   /* 홈과 통일된 부드러운 카드 톤 */
   
   /* 테두리 */
   --color-brd: #E5E5E5;

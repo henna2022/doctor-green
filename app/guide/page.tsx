@@ -36,7 +36,7 @@ export default function GuidePage() {
 
 function CropCard({ c }: { c: OptimalRange }) {
   return (
-    <div className="rounded-2xl bg-bg-card border border-brd p-4">
+    <div className="rounded-2xl bg-bg-soft p-4">
       <div className="flex items-center gap-2 mb-3">
         <span className="text-2xl">{c.emoji}</span>
         <h2 className="text-base font-extrabold">{c.label}</h2>

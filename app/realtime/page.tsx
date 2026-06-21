@@ -99,7 +99,7 @@ export default function RealtimePage() {
                 <div
                   key={d.id}
                   onClick={() => router.push(`/realtime/${d.id}`)}
-                  className="p-4 rounded-2xl bg-bg-card border border-brd hover:border-g3 transition cursor-pointer relative"
+                  className="p-4 rounded-2xl bg-bg-soft hover:bg-[#ECECE7] transition cursor-pointer relative"
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-g5 flex items-center justify-center text-2xl shrink-0">

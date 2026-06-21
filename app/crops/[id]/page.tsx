@@ -250,7 +250,7 @@ export default function CropDetailPage() {
             {diagnoses.length > 0 ? (
               <div className="flex flex-col gap-2">
                 {diagnoses.map((d) => (
-                  <div key={d.id} className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-brd">
+                  <div key={d.id} className="flex gap-3 p-3 rounded-2xl bg-bg-soft">
                     {d.image_url && (
                       // eslint-disable-next-line @next/next/no-img-element
                       <img src={d.image_url} alt={d.disease_name} className="w-16 h-16 rounded-xl object-cover shrink-0" />
@@ -273,7 +273,7 @@ export default function CropDetailPage() {
                 ))}
               </div>
             ) : (
-              <div className="p-6 rounded-2xl bg-bg-card border border-brd text-center">
+              <div className="p-6 rounded-2xl bg-bg-soft text-center">
                 <p className="text-sm text-txt3 mb-3">{crop.crop_name} 진단 기록이 없어요</p>
                 <Link
                   href="/diagnose"
@@ -288,7 +288,7 @@ export default function CropDetailPage() {
           {/* 작물 정보 */}
           <section>
             <h3 className="text-base font-extrabold mb-3">📊 정보</h3>
-            <div className="bg-bg-card border border-brd rounded-2xl divide-y divide-brd">
+            <div className="bg-bg-soft rounded-2xl divide-y divide-brd">
               <InfoRow label="작물" value={`${crop.emoji} ${crop.crop_name}`} />
               <InfoRow label="심은 날" value={crop.planted_date || "미설정"} />
               <InfoRow label="경과일" value={days !== null ? `${days}일` : "—"} />

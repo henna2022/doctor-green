@@ -62,7 +62,7 @@ export default function HistoryPage() {
             {records.map((r) => {
               const sev = severityInfo(r.severity);
               return (
-                <div key={r.id} className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-brd">
+                <div key={r.id} className="flex gap-3 p-3 rounded-2xl bg-bg-soft">
                   {/* 썸네일 */}
                   {r.image_url && (
                     // eslint-disable-next-line @next/next/no-img-element

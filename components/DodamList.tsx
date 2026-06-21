@@ -120,7 +120,7 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
                 href={`https://ncpms.rda.go.kr/mobile/MobileSicknsDtlR.ms?dtlKey=${item.sickKey}&totalSearchYn=Y`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="flex gap-3 p-3 rounded-2xl bg-bg-card border border-brd hover:border-g3 transition"
+                className="flex gap-3 p-3 rounded-2xl bg-bg-soft hover:bg-[#ECECE7] transition"
               >
                 {/* 썸네일 */}
                 <div className="w-16 h-16 rounded-xl bg-g5 overflow-hidden shrink-0 flex items-center justify-center">
