@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { CROP_GUIDE, OptimalRange } from "@/lib/cropGuide";
+import { TempIcon, HumidityIcon, SoilIcon } from "@/components/Icons";
 
 export default function GuidePage() {
   const crops = Object.values(CROP_GUIDE);
@@ -43,9 +44,9 @@ function CropCard({ c }: { c: OptimalRange }) {
       </div>
 
       <div className="grid grid-cols-3 gap-2 mb-3">
-        <RangeBox icon="🌡️" label="온도" range={c.temp} unit="°C" color="#F08080" />
-        <RangeBox icon="💧" label="습도" range={c.hum} unit="%" color="#4A90E2" />
-        <RangeBox icon="🌱" label="토양수분" range={c.soil} unit="%" color="#4ECAA0" />
+        <RangeBox icon={<TempIcon className="w-6 h-6" />} label="온도" range={c.temp} unit="°C" color="#F08080" />
+        <RangeBox icon={<HumidityIcon className="w-6 h-6" />} label="습도" range={c.hum} unit="%" color="#4A90E2" />
+        <RangeBox icon={<SoilIcon className="w-6 h-6" />} label="토양수분" range={c.soil} unit="%" color="#4ECAA0" />
       </div>
 
       <p className="text-xs text-txt2 leading-relaxed bg-g5 rounded-xl p-3">
@@ -57,10 +58,10 @@ function CropCard({ c }: { c: OptimalRange }) {
 
 function RangeBox({
   icon, label, range, unit, color,
-}: { icon: string; label: string; range: [number, number]; unit: string; color: string }) {
+}: { icon: React.ReactNode; label: string; range: [number, number]; unit: string; color: string }) {
   return (
     <div className="rounded-xl border border-brd p-2.5 text-center">
-      <div className="text-lg leading-none mb-1">{icon}</div>
+      <div className="mb-1 flex justify-center">{icon}</div>
       <div className="text-[10px] text-txt3 mb-0.5">{label}</div>
       <div className="text-sm font-extrabold" style={{ color }}>
         {range[0]}~{range[1]}

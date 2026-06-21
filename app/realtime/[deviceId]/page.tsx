@@ -13,6 +13,7 @@ import {
   SensorLog,
 } from "@/lib/sensors";
 import { getCropById, MyCrop } from "@/lib/crops";
+import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, FanIcon, CameraIcon } from "@/components/Icons";
 import {
   LineChart,
   Line,
@@ -382,7 +383,7 @@ export default function DeviceDetailPage() {
                 {/* 카메라 미사용 */}
                 {device.camera_type === "none" && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white/40">
-                    <div className="text-4xl mb-2">📷</div>
+                    <CameraIcon className="w-9 h-9 mb-2 opacity-70" />
                     <p className="text-xs">카메라 미연결</p>
                   </div>
                 )}
@@ -399,9 +400,9 @@ export default function DeviceDetailPage() {
             </section>
 
             <div className="grid grid-cols-3 gap-2 mb-4">
-              <SensorCard label="온도" icon="🌡️" value={reading?.temp} unit="°C" color="#F08080" />
-              <SensorCard label="습도" icon="💧" value={reading?.hum} unit="%" color="#4A90E2" />
-              <SensorCard label="토양수분" icon="🌱" value={reading?.soil} unit="%" color="#4ECAA0" />
+              <SensorCard label="온도" icon={<TempIcon className="w-7 h-7" />} value={reading?.temp} unit="°C" color="#F08080" />
+              <SensorCard label="습도" icon={<HumidityIcon className="w-7 h-7" />} value={reading?.hum} unit="%" color="#4A90E2" />
+              <SensorCard label="토양수분" icon={<SoilIcon className="w-7 h-7" />} value={reading?.soil} unit="%" color="#4ECAA0" />
             </div>
 
             <section className="mb-5">
@@ -409,14 +410,14 @@ export default function DeviceDetailPage() {
               <div className="grid grid-cols-2 gap-2">
                 <ControlButton
                   label="식물생장 LED"
-                  icon="💡"
+                  icon={<BulbIcon className="w-7 h-7" />}
                   on={reading?.ledOn || false}
                   onClick={() => handleToggle("led")}
                   disabled={busy || !reading?.ok}
                 />
                 <ControlButton
                   label="FAN"
-                  icon="🌀"
+                  icon={<FanIcon className="w-7 h-7" />}
                   on={reading?.fanOn || false}
                   onClick={() => handleToggle("fan")}
                   disabled={busy || !reading?.ok}
@@ -530,10 +531,10 @@ export default function DeviceDetailPage() {
 
 function SensorCard({
   label, icon, value, unit, color,
-}: { label: string; icon: string; value: number | null | undefined; unit: string; color: string }) {
+}: { label: string; icon: React.ReactNode; value: number | null | undefined; unit: string; color: string }) {
   return (
     <div className="p-3 rounded-2xl bg-bg-soft text-center">
-      <div className="text-xl mb-1">{icon}</div>
+      <div className="mb-1 flex justify-center">{icon}</div>
       <div className="text-xl font-extrabold" style={{ color }}>
         {value != null ? value : "--"}
       </div>
@@ -545,7 +546,7 @@ function SensorCard({
 
 function ControlButton({
   label, icon, on, onClick, disabled,
-}: { label: string; icon: string; on: boolean; onClick: () => void; disabled: boolean }) {
+}: { label: string; icon: React.ReactNode; on: boolean; onClick: () => void; disabled: boolean }) {
   return (
     <button
       onClick={onClick}
@@ -554,7 +555,7 @@ function ControlButton({
         on ? "bg-g1 border-g1 text-white" : "bg-bg-card border-brd text-txt2"
       }`}
     >
-      <span className="text-2xl">{icon}</span>
+      <span className="shrink-0">{icon}</span>
       <div className="flex-1 text-left">
         <div className="text-xs font-bold">{label}</div>
         <div className="text-[10px] opacity-80">{on ? "ON" : "OFF"}</div>

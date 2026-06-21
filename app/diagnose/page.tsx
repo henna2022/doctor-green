@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 import { getMyCrops, MyCrop } from "@/lib/crops";
+import { CameraIcon, UploadIcon, SearchIcon } from "@/components/Icons";
 
 export default function DiagnosePage() {
   const router = useRouter();
@@ -211,7 +212,7 @@ export default function DiagnosePage() {
             </div>
           ) : (
             <div className="rounded-3xl border-2 border-dashed border-brd h-85 flex flex-col items-center justify-center bg-bg-card">
-              <div className="text-5xl mb-3">📷</div>
+              <CameraIcon className="w-14 h-14 mb-3 opacity-70" />
               <p className="text-sm text-txt2">카메라를 켜거나 사진을 업로드하세요</p>
             </div>
           )}
@@ -240,22 +241,22 @@ export default function DiagnosePage() {
                 onClick={startCamera}
                 className="py-3.5 rounded-2xl bg-bg-card border-2 border-g1 text-g1 font-bold hover:bg-g5 transition flex items-center justify-center gap-2"
               >
-                📸 카메라 켜기
+                <CameraIcon className="w-5 h-5" /> 카메라 켜기
               </button>
               <button
                 onClick={() => galleryInputRef.current?.click()}
                 className="py-3.5 rounded-2xl bg-bg-card border-2 border-g1 text-g1 font-bold hover:bg-g5 transition flex items-center justify-center gap-2"
               >
-                🖼️ 업로드
+                <UploadIcon className="w-5 h-5" /> 업로드
               </button>
             </div>
 
             <button
               onClick={handleDiagnose}
               disabled={!imagePreview}
-              className="w-full py-4 rounded-2xl bg-g1 text-white font-bold hover:bg-g2 disabled:opacity-40 disabled:cursor-not-allowed transition"
+              className="w-full py-4 rounded-2xl bg-g1 text-white font-bold hover:bg-g2 disabled:opacity-40 disabled:cursor-not-allowed transition flex items-center justify-center gap-2"
             >
-              🔍 AI 진단 시작하기
+              <SearchIcon className="w-5 h-5" /> AI 진단 시작하기
             </button>
           </>
         )}
