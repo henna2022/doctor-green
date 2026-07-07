@@ -3,9 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { getMyDevices, addDevice, deleteDevice, Device } from "@/lib/sensors";
 import { getMyCrops, MyCrop } from "@/lib/crops";
+import { AntennaIcon, FlaskIcon, PlugIcon, CameraIcon, BulbIcon } from "@/components/Icons";
 
 
 export default function RealtimePage() {
@@ -76,13 +78,14 @@ export default function RealtimePage() {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <div className="w-6" />
-        <h1 className="text-base font-bold">실시간 분석</h1>
-        <button onClick={() => setShowAdd(true)} className="text-xl text-g1 font-bold w-6 text-right">
-          +
-        </button>
-      </header>
+      <PageHeader
+        title="실시간 분석"
+        rightAction={
+          <button onClick={() => setShowAdd(true)} className="text-xl text-g1 font-bold w-6 text-right">
+            +
+          </button>
+        }
+      />
 
       <main className="flex-1 px-5 py-5">
         {loading ? (
@@ -103,7 +106,7 @@ export default function RealtimePage() {
                 >
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 rounded-xl bg-g5 flex items-center justify-center text-2xl shrink-0">
-                      {crop?.emoji || "📡"}
+                      {crop?.emoji || <AntennaIcon className="w-6 h-6" />}
                     </div>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
@@ -114,9 +117,13 @@ export default function RealtimePage() {
                           </span>
                         )}
                       </div>
-                      <p className="text-xs text-txt2">
+                      <p className="text-xs text-txt2 flex items-center gap-1">
                         {crop?.crop_name || "작물 미연결"}
-                        {d.camera_url && " · 📹"}
+                        {d.camera_url && (
+                          <>
+                            · <CameraIcon className="w-3.5 h-3.5" />
+                          </>
+                        )}
                       </p>
                     </div>
                     <button onClick={(e) => handleDelete(e, d.id)} className="text-txt3 text-sm shrink-0">
@@ -130,7 +137,7 @@ export default function RealtimePage() {
           </div>
         ) : (
           <div className="text-center py-20">
-            <div className="text-4xl mb-3">📡</div>
+            <AntennaIcon className="w-10 h-10 mb-3 mx-auto opacity-70" />
             <p className="text-sm text-txt2 mb-4">등록된 스마트팜이 없어요</p>
             <button
               onClick={() => setShowAdd(true)}
@@ -183,30 +190,33 @@ export default function RealtimePage() {
                 <button
                   type="button"
                   onClick={() => setBlynkToken("DEMO")}
-                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center justify-center gap-1 ${
                     blynkToken === "DEMO" ? "bg-g5 border-g3 text-g1" : "border-brd text-txt2 bg-bg-card"
                   }`}
                 >
-                  🧪 DEMO (시뮬레이션)
+                  <FlaskIcon className="w-4 h-4" /> DEMO (시뮬레이션)
                 </button>
                 <button
                   type="button"
                   onClick={() => setBlynkToken("REAL")}
-                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center justify-center gap-1 ${
                     blynkToken !== "DEMO" ? "bg-g5 border-g3 text-g1" : "border-brd text-txt2 bg-bg-card"
                   }`}
                 >
-                  📡 실제 센서
+                  <AntennaIcon className="w-4 h-4" /> 실제 센서
                 </button>
               </div>
               {blynkToken !== "DEMO" && (
-                <div className="mb-4 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed">
-                  💡 헥사보드 펌웨어의 <code className="bg-bg-card px-1 rounded">DEVICE_ID</code>를 이 디바이스 UUID와 똑같이 맞춰야 데이터가 들어와요.
+                <div className="mb-4 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed flex items-start gap-1.5">
+                  <BulbIcon className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>헥사보드 펌웨어의 <code className="bg-bg-card px-1 rounded">DEVICE_ID</code>를 이 디바이스 UUID와 똑같이 맞춰야 데이터가 들어와요.</span>
                 </div>
               )}
 
               {/* 카메라 타입 선택 */}
-              <label className="block text-sm font-bold mb-2">📷 카메라</label>
+              <label className="block text-sm font-bold mb-2 flex items-center gap-1.5">
+                <CameraIcon className="w-4 h-4" /> 카메라
+              </label>
               <div className="grid grid-cols-3 gap-1.5 mb-3">
                 <button
                   type="button"
@@ -222,31 +232,32 @@ export default function RealtimePage() {
                 <button
                   type="button"
                   onClick={() => setCameraType("usb")}
-                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center justify-center gap-1 ${
                     cameraType === "usb"
                       ? "bg-g5 border-g3 text-g1"
                       : "border-brd text-txt2 bg-bg-card"
                   }`}
                 >
-                  🔌 USB 웹캠
+                  <PlugIcon className="w-4 h-4" /> USB 웹캠
                 </button>
                 <button
                   type="button"
                   onClick={() => setCameraType("mjpeg")}
-                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition ${
+                  className={`py-2.5 rounded-xl border-2 text-xs font-bold transition flex items-center justify-center gap-1 ${
                     cameraType === "mjpeg"
                       ? "bg-g5 border-g3 text-g1"
                       : "border-brd text-txt2 bg-bg-card"
                   }`}
                 >
-                  📡 네트워크
+                  <AntennaIcon className="w-4 h-4" /> 네트워크
                 </button>
               </div>
 
               {/* USB 안내 */}
               {cameraType === "usb" && (
-                <div className="mb-5 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed">
-                  💡 PC에 NC-150 같은 USB 웹캠을 연결하면 디바이스 상세 페이지에서 자동으로 인식돼요. 추가 설정 없이 바로 사용 가능!
+                <div className="mb-5 p-3 rounded-xl bg-g5 text-xs text-g1 leading-relaxed flex items-start gap-1.5">
+                  <BulbIcon className="w-4 h-4 shrink-0 mt-0.5" />
+                  <span>PC에 NC-150 같은 USB 웹캠을 연결하면 디바이스 상세 페이지에서 자동으로 인식돼요. 추가 설정 없이 바로 사용 가능!</span>
                 </div>
               )}
 

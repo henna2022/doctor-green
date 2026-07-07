@@ -3,19 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import { addCrop, getMyCrops, deleteCrop, toggleFavorite, MyCrop } from "@/lib/crops";
-
-const CROP_OPTIONS = [
-  { emoji: "🍅", name: "토마토" },
-  { emoji: "🌶️", name: "고추" },
-  { emoji: "🍓", name: "딸기" },
-  { emoji: "🥒", name: "오이" },
-  { emoji: "🍑", name: "복숭아" },
-  { emoji: "🍎", name: "사과" },
-  { emoji: "🥬", name: "배추" },
-  { emoji: "🌾", name: "기타" },
-];
+import { CROP_CATALOG as CROP_OPTIONS } from "@/lib/cropCatalog";
+import { HeartIcon, StarIcon, NoteIcon, SproutIcon } from "@/components/Icons";
 
 export default function CropsPage() {
   const router = useRouter();
@@ -97,13 +89,14 @@ export default function CropsPage() {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <div className="w-6" />
-        <h1 className="text-base font-bold">작물 관리</h1>
-        <button onClick={() => setShowAdd(true)} className="text-xl text-g1 font-bold w-6 text-right">
-          +
-        </button>
-      </header>
+      <PageHeader
+        title="작물 관리"
+        rightAction={
+          <button onClick={() => setShowAdd(true)} className="text-xl text-g1 font-bold w-6 text-right">
+            +
+          </button>
+        }
+      />
 
       <main className="flex-1 px-5 py-5">
         {loading ? (
@@ -128,7 +121,7 @@ export default function CropsPage() {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5 mb-0.5">
                         <h3 className="text-base font-bold">{c.crop_name}</h3>
-                        {c.is_favorite && <span className="text-xs">⭐</span>}
+                        {c.is_favorite && <StarIcon className="w-3.5 h-3.5" />}
                       </div>
                       {c.planted_date && (
                         <p className="text-xs text-txt2">
@@ -144,7 +137,7 @@ export default function CropsPage() {
                       className="text-2xl shrink-0 hover:scale-110 transition-transform"
                       aria-label={c.is_favorite ? "즐겨찾기 해제" : "즐겨찾기 추가"}
                     >
-                      {c.is_favorite ? "❤️" : "🤍"}
+                      <HeartIcon className="w-5 h-5" filled={c.is_favorite} />
                     </button>
 
                     {/* 삭제 */}
@@ -157,8 +150,8 @@ export default function CropsPage() {
                     </button>
                   </div>
                   {c.memo && (
-                    <p className="text-sm text-txt2 bg-g5 rounded-xl px-3 py-2 leading-relaxed">
-                      📝 {c.memo}
+                    <p className="text-sm text-txt2 bg-g5 rounded-xl px-3 py-2 leading-relaxed flex items-start gap-1.5">
+                      <NoteIcon className="w-4 h-4 shrink-0 mt-0.5" /> {c.memo}
                     </p>
                   )}
                   <p className="text-xs text-txt3 mt-2 text-right">상세보기 ›</p>
@@ -168,7 +161,7 @@ export default function CropsPage() {
           </div>
         ) : (
           <div className="text-center py-20">
-            <div className="text-4xl mb-3">🌱</div>
+            <SproutIcon className="w-10 h-10 mb-3 mx-auto opacity-70" />
             <p className="text-sm text-txt2 mb-4">아직 등록한 작물이 없어요</p>
             <button
               onClick={() => setShowAdd(true)}

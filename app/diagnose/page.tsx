@@ -4,8 +4,14 @@ import { useState, useRef, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
 import { getMyCrops, MyCrop } from "@/lib/crops";
-import { CameraIcon, UploadIcon, SearchIcon } from "@/components/Icons";
+import { CameraIcon, UploadIcon, SearchIcon, LeafIcon, FlaskIcon } from "@/components/Icons";
+import { resizeImageDataUrl, resizeImageFile, safeSetSessionStorage } from "./imageUtils";
+
+// HF Space 워밍 폴링 설정 — 3초 간격, 최대 10회
+const PING_INTERVAL_MS = 3000;
+const PING_MAX_ATTEMPTS = 10;
 
 export default function DiagnosePage() {
   const router = useRouter();
@@ -21,6 +27,7 @@ export default function DiagnosePage() {
   const [myCrops, setMyCrops] = useState<MyCrop[]>([]);
   const [cropsLoading, setCropsLoading] = useState(true);
   const [cameraError, setCameraError] = useState("");
+  const [modelWarm, setModelWarm] = useState(false);
 
   // 내 작물 목록 로드
   useEffect(() => {
@@ -31,9 +38,33 @@ export default function DiagnosePage() {
     })();
   }, []);
 
-  // HF Space cold start 완화: 진입 시 백그라운드 warmup
+  // HF Space cold start 완화: 진입 시 3초 간격으로 최대 10회 폴링해 warm 상태 추적
   useEffect(() => {
-    fetch("/api/diagnose/ping").catch(() => {});
+    let cancelled = false;
+    let attempts = 0;
+
+    const poll = async () => {
+      if (cancelled) return;
+      attempts += 1;
+      try {
+        const res = await fetch("/api/diagnose/ping");
+        const data = await res.json();
+        if (data.ok) {
+          if (!cancelled) setModelWarm(true);
+          return;
+        }
+      } catch {
+        // 무시하고 재시도
+      }
+      if (!cancelled && attempts < PING_MAX_ATTEMPTS) {
+        setTimeout(poll, PING_INTERVAL_MS);
+      }
+    };
+
+    poll();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // 카메라 끄기 (stream 정리)
@@ -73,8 +104,8 @@ export default function DiagnosePage() {
     }
   };
 
-  // 사진 촬영
-  const takePhoto = () => {
+  // 사진 촬영 — 최대 변 1280px 리사이즈 + JPEG 0.8 인코딩 후 미리보기로 사용
+  const takePhoto = async () => {
     const video = videoRef.current;
     const canvas = canvasRef.current;
     if (!video || !canvas) return;
@@ -85,19 +116,30 @@ export default function DiagnosePage() {
     if (!ctx) return;
 
     ctx.drawImage(video, 0, 0);
-    const dataUrl = canvas.toDataURL("image/jpeg", 0.9);
-    setImagePreview(dataUrl);
+    const rawDataUrl = canvas.toDataURL("image/jpeg", 0.9);
     stopCamera();
+
+    try {
+      const resized = await resizeImageDataUrl(rawDataUrl);
+      setImagePreview(resized);
+    } catch (e) {
+      console.error("이미지 리사이즈 실패:", e);
+      setImagePreview(rawDataUrl);
+    }
   };
 
-  // 갤러리 업로드
-  const handleGalleryUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // 갤러리 업로드 — 리사이즈 공통 처리
+  const handleGalleryUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
-    const reader = new FileReader();
-    reader.onload = (ev) => setImagePreview(ev.target?.result as string);
-    reader.readAsDataURL(file);
+    try {
+      const resized = await resizeImageFile(file);
+      setImagePreview(resized);
+    } catch (err) {
+      console.error("이미지 리사이즈 실패:", err);
+      alert("이미지를 처리하지 못했어요. 다른 사진으로 시도해주세요.");
+    }
   };
 
   const handleDiagnose = () => {
@@ -108,9 +150,15 @@ export default function DiagnosePage() {
 
     const selectedCrop = myCrops.find((c) => c.id === selectedCropId);
 
-    sessionStorage.setItem("diagnose_image", imagePreview);
-    sessionStorage.setItem("diagnose_crop", selectedCrop?.crop_name || "미지정");
-    sessionStorage.setItem("diagnose_crop_id", selectedCropId || "");
+    const ok = safeSetSessionStorage("diagnose_image", imagePreview);
+    if (!ok) {
+      alert("이미지 저장에 실패했어요. 브라우저 저장공간이 가득 찼을 수 있어요. 다른 사진으로 다시 시도해주세요.");
+      return;
+    }
+    safeSetSessionStorage("diagnose_crop", selectedCrop?.crop_name || "미지정");
+    safeSetSessionStorage("diagnose_crop_id", selectedCropId || "");
+    // 새 일반 진단 시작 — 이전 실시간 스냅샷의 센서값이 남아있지 않도록 제거
+    sessionStorage.removeItem("diagnose_sensors");
 
     router.push("/diagnose/result");
   };
@@ -121,18 +169,15 @@ export default function DiagnosePage() {
 
   return (
     <div className="phone-frame">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/home" className="text-2xl" onClick={stopCamera}>‹</Link>
-        <h1 className="text-base font-bold">AI 작물 진단</h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader title="AI 작물 진단" backHref="/home" onBack={stopCamera} />
 
       <main className="flex-1 px-5 py-5 pb-2">
         {/* 안내 */}
         <div className="mb-5 p-3.5 rounded-2xl bg-g5">
-          <p className="text-sm text-g1 font-medium leading-relaxed">
-            🌿 병해충이 의심되는 잎이나 줄기를 가까이서 촬영하면<br />
-            더 정확하게 진단할 수 있어요!
+          <p className="text-sm text-g1 font-medium leading-relaxed flex items-start gap-1.5">
+            <LeafIcon className="w-4 h-4 shrink-0 mt-0.5" />
+            <span>병해충이 의심되는 잎이나 줄기를 가까이서 촬영하면<br />
+            더 정확하게 진단할 수 있어요!</span>
           </p>
         </div>
 
@@ -229,6 +274,10 @@ export default function DiagnosePage() {
           type="file"
           accept="image/*"
           onChange={handleGalleryUpload}
+          onClick={(e) => {
+            // 같은 사진을 다시 선택해도 onChange가 발생하도록 초기화
+            (e.target as HTMLInputElement).value = "";
+          }}
           className="hidden"
         />
 
@@ -258,6 +307,12 @@ export default function DiagnosePage() {
             >
               <SearchIcon className="w-5 h-5" /> AI 진단 시작하기
             </button>
+
+            {!modelWarm && (
+              <p className="text-center text-[11px] text-txt3 mt-2 flex items-center justify-center gap-1">
+                <FlaskIcon className="w-3.5 h-3.5" /> AI 모델을 미리 깨우는 중이에요 (첫 진단이 느릴 수 있어요)
+              </p>
+            )}
           </>
         )}
       </main>

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signIn } from "@/lib/auth";
+import { WaveIcon } from "@/components/Icons";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -43,8 +44,8 @@ export default function LoginPage() {
       </header>
 
       <main className="flex-1 px-5 py-6">
-        <h2 className="text-2xl font-extrabold mb-2 tracking-tight">
-          다시 오신 걸 환영해요 👋
+        <h2 className="text-2xl font-extrabold mb-2 tracking-tight flex items-center gap-2">
+          다시 오신 걸 환영해요 <WaveIcon className="w-6 h-6" />
         </h2>
         <p className="text-sm text-txt2 mb-8">
           계정에 로그인하고 농장을 관리하세요

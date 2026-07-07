@@ -7,6 +7,7 @@ import { getCurrentUser } from "@/lib/auth";
 import { getCropById, toggleFavorite, updateCrop, MyCrop } from "@/lib/crops";
 import { getDiagnosesByCrop, DiagnosisRecord } from "@/lib/diagnoses";
 import { fetchPestForecast, PestForecast } from "@/lib/api";
+import { HeartIcon, CalendarIcon, NoteIcon, BellIcon, CheckIcon, BookIcon, LeafIcon, BugIcon, RecordIcon, ChartIcon } from "@/components/Icons";
 
 // 작물 이모지 옵션
 const CROP_EMOJIS = ["🍅", "🌶️", "🍓", "🥒", "🍑", "🍎", "🥬", "🌾", "🧄", "🧅", "🥕", "🥔", "🌽", "🌱"];
@@ -143,7 +144,7 @@ export default function CropDetailPage() {
           </button>
           {/* 하트 */}
           <button onClick={handleToggleFavorite} className="text-xl">
-            {crop.is_favorite ? "❤️" : "🤍"}
+            <HeartIcon className="w-5 h-5" filled={crop.is_favorite} />
           </button>
         </div>
       </header>
@@ -158,8 +159,8 @@ export default function CropDetailPage() {
             <div className="flex-1">
               <h2 className="text-2xl font-extrabold text-g1 mb-1">{crop.crop_name}</h2>
               {crop.planted_date && (
-                <p className="text-sm text-txt2">
-                  📅 {crop.planted_date}
+                <p className="text-sm text-txt2 flex items-center gap-1">
+                  <CalendarIcon className="w-4 h-4" /> {crop.planted_date}
                   {days !== null && ` (${days}일째)`}
                 </p>
               )}
@@ -169,8 +170,8 @@ export default function CropDetailPage() {
             </div>
           </div>
           {crop.memo && (
-            <p className="mt-3 text-sm text-txt bg-white rounded-xl px-3 py-2 leading-relaxed">
-              📝 {crop.memo}
+            <p className="mt-3 text-sm text-txt bg-white rounded-xl px-3 py-2 leading-relaxed flex items-start gap-1.5">
+              <NoteIcon className="w-4 h-4 shrink-0 mt-0.5" /> {crop.memo}
             </p>
           )}
         </div>
@@ -178,8 +179,8 @@ export default function CropDetailPage() {
         <div className="px-5 py-5">
           {/* 병해충 예찰 */}
           <section className="mb-6">
-            <h3 className="text-base font-extrabold mb-3">
-              🔔 {crop.crop_name} 병해충 예찰
+            <h3 className="text-base font-extrabold mb-3 flex items-center gap-1.5">
+              <BellIcon className="w-5 h-5" /> {crop.crop_name} 병해충 예찰
             </h3>
             {forecasts.length > 0 ? (
               <div className="flex flex-col gap-2">
@@ -212,27 +213,31 @@ export default function CropDetailPage() {
               </div>
             ) : (
               <div className="p-4 rounded-2xl bg-g5 text-center">
-                <p className="text-sm text-g1 font-medium">현재 예찰 정보가 없습니다 ✅</p>
+                <p className="text-sm text-g1 font-medium flex items-center justify-center gap-1">
+                  현재 예찰 정보가 없습니다 <CheckIcon className="w-4 h-4" />
+                </p>
               </div>
             )}
           </section>
 
           {/* 도감 링크 */}
           <section className="mb-6">
-            <h3 className="text-base font-extrabold mb-3">📚 {crop.crop_name} 도감</h3>
+            <h3 className="text-base font-extrabold mb-3 flex items-center gap-1.5">
+              <BookIcon className="w-5 h-5" /> {crop.crop_name} 도감
+            </h3>
             <div className="grid grid-cols-2 gap-2">
               <Link
                 href={`/dodam/disease?crop=${encodeURIComponent(crop.crop_name)}`}
                 className="p-4 rounded-2xl bg-g5 hover:bg-g4 transition flex flex-col items-center gap-1.5"
               >
-                <span className="text-2xl">🌿</span>
+                <LeafIcon className="w-7 h-7" />
                 <span className="text-sm font-bold text-g1">질병 도감</span>
               </Link>
               <Link
                 href={`/dodam/pest?crop=${encodeURIComponent(crop.crop_name)}`}
                 className="p-4 rounded-2xl bg-orange/10 hover:bg-orange/20 transition flex flex-col items-center gap-1.5"
               >
-                <span className="text-2xl">🐛</span>
+                <BugIcon className="w-7 h-7" />
                 <span className="text-sm font-bold text-orange">해충 도감</span>
               </Link>
             </div>
@@ -241,8 +246,8 @@ export default function CropDetailPage() {
           {/* 진단 기록 */}
           <section className="mb-6">
             <div className="flex items-center justify-between mb-3">
-              <h3 className="text-base font-extrabold">
-                📋 진단 기록 <span className="text-sm text-txt3 font-normal">({diagnoses.length})</span>
+              <h3 className="text-base font-extrabold flex items-center gap-1.5">
+                <RecordIcon className="w-5 h-5" /> 진단 기록 <span className="text-sm text-txt3 font-normal">({diagnoses.length})</span>
               </h3>
               <Link href="/diagnose" className="text-xs text-g2">새 진단 ›</Link>
             </div>
@@ -287,12 +292,22 @@ export default function CropDetailPage() {
 
           {/* 작물 정보 */}
           <section>
-            <h3 className="text-base font-extrabold mb-3">📊 정보</h3>
+            <h3 className="text-base font-extrabold mb-3 flex items-center gap-1.5">
+              <ChartIcon className="w-5 h-5" /> 정보
+            </h3>
             <div className="bg-bg-soft rounded-2xl divide-y divide-brd">
               <InfoRow label="작물" value={`${crop.emoji} ${crop.crop_name}`} />
               <InfoRow label="심은 날" value={crop.planted_date || "미설정"} />
               <InfoRow label="경과일" value={days !== null ? `${days}일` : "—"} />
-              <InfoRow label="즐겨찾기" value={crop.is_favorite ? "❤️ 등록됨" : "🤍 미등록"} />
+              <InfoRow
+                label="즐겨찾기"
+                value={
+                  <span className="inline-flex items-center gap-1">
+                    <HeartIcon className="w-3.5 h-3.5" filled={crop.is_favorite} />
+                    {crop.is_favorite ? "등록됨" : "미등록"}
+                  </span>
+                }
+              />
             </div>
           </section>
         </div>
@@ -381,7 +396,7 @@ export default function CropDetailPage() {
   );
 }
 
-function InfoRow({ label, value }: { label: string; value: string }) {
+function InfoRow({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="flex items-center justify-between px-4 py-3">
       <span className="text-xs text-txt3">{label}</span>

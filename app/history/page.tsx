@@ -4,8 +4,10 @@ import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
 import { getMyDiagnoses, deleteDiagnosis, DiagnosisRecord } from "@/lib/diagnoses";
 import { getCurrentUser } from "@/lib/auth";
+import { RecordIcon } from "@/components/Icons";
 
 export default function HistoryPage() {
   const router = useRouter();
@@ -45,11 +47,7 @@ export default function HistoryPage() {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/home" className="text-2xl">‹</Link>
-        <h1 className="text-base font-bold">진단 기록</h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader title="진단 기록" backHref="/home" />
 
       <main className="flex-1 px-5 py-5">
         {loading ? (
@@ -92,7 +90,7 @@ export default function HistoryPage() {
           </div>
         ) : (
           <div className="text-center py-20">
-            <div className="text-4xl mb-3">📋</div>
+            <RecordIcon className="w-10 h-10 mb-3 mx-auto opacity-70" />
             <p className="text-sm text-txt2 mb-4">아직 진단 기록이 없어요</p>
             <Link
               href="/diagnose"

@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter, useParams } from "next/navigation";
-import Link from "next/link";
+import PageHeader from "@/components/PageHeader";
 import {
   getDevice,
   readSensors,
@@ -13,7 +13,8 @@ import {
   SensorLog,
 } from "@/lib/sensors";
 import { getCropById, MyCrop } from "@/lib/crops";
-import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, FanIcon, CameraIcon } from "@/components/Icons";
+import { assessEnvironment } from "@/lib/cropGuide";
+import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, FanIcon, CameraIcon, WarningIcon, RobotIcon, CheckIcon, PlugIcon, RecordIcon } from "@/components/Icons";
 import {
   LineChart,
   Line,
@@ -52,32 +53,62 @@ export default function DeviceDetailPage() {
   const [cameraError, setCameraError] = useState<string>("");
   const videoRef = useRef<HTMLVideoElement>(null);
 
-  // 센서 폴링 (Supabase sensor_readings 최신값)
-  const poll = useCallback(async () => {
-    const r = await readSensors(deviceId);
-    setReading(r);
-  }, [deviceId]);
+  // 토글 직후 서버 값이 진실 — 이후 2 폴링 주기 동안 폴링 값으로 덮어쓰지 않음
+  const pendingRef = useRef<{
+    led: { value: boolean; cycles: number } | null;
+    fan: { value: boolean; cycles: number } | null;
+  }>({ led: null, fan: null });
+  // 폴링 시각(렌더 중 Date.now() 직접 호출을 피하기 위해 상태로 보관)
+  const [polledAt, setPolledAt] = useState(0);
 
   useEffect(() => {
+    let cancelled = false;
     let interval: NodeJS.Timeout;
+
+    async function doPoll() {
+      const r = await readSensors(deviceId);
+      if (cancelled) return;
+      const pending = pendingRef.current;
+      const merged = { ...r };
+      if (pending.led) {
+        merged.ledOn = pending.led.value;
+        pending.led.cycles -= 1;
+        if (pending.led.cycles <= 0) pending.led = null;
+      }
+      if (pending.fan) {
+        merged.fanOn = pending.fan.value;
+        pending.fan.cycles -= 1;
+        if (pending.fan.cycles <= 0) pending.fan = null;
+      }
+      setReading(merged);
+      setPolledAt(Date.now());
+    }
+
     async function init() {
       const d = await getDevice(deviceId);
+      if (cancelled) return;
       if (!d) {
         router.push("/realtime");
         return;
       }
       setDevice(d);
       if (d.crop_id) {
-        setCrop(await getCropById(d.crop_id));
+        const c = await getCropById(d.crop_id);
+        if (cancelled) return;
+        setCrop(c);
       }
       setLoading(false);
 
-      await poll();
-      interval = setInterval(poll, POLL_INTERVAL);
+      await doPoll();
+      if (cancelled) return;
+      interval = setInterval(doPoll, POLL_INTERVAL);
     }
     init();
-    return () => clearInterval(interval);
-  }, [deviceId, router, poll]);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [deviceId, router]);
 
   // ━━━ USB 카메라: 디바이스 목록 가져오기 ━━━
   useEffect(() => {
@@ -144,8 +175,16 @@ export default function DeviceDetailPage() {
   // 이력 탭이 열려있을 때, 선택한 날짜의 0~24시 추이 로드
   useEffect(() => {
     if (activeTab !== "history") return;
-    setLogs([]);
-    getDayHistory(deviceId, selectedDay).then(setLogs);
+    let stale = false;
+    Promise.resolve().then(() => {
+      if (!stale) setLogs([]);
+    });
+    getDayHistory(deviceId, selectedDay).then((data) => {
+      if (!stale) setLogs(data);
+    });
+    return () => {
+      stale = true;
+    };
   }, [activeTab, deviceId, selectedDay]);
 
   const handleToggle = async (pin: "led" | "fan") => {
@@ -156,10 +195,12 @@ export default function DeviceDetailPage() {
     if (res.error) {
       alert("제어 실패: " + res.error);
     } else {
-      setReading({
-        ...reading,
-        [pin === "led" ? "ledOn" : "fanOn"]: newVal,
-      });
+      // 서버가 돌려준 갱신 행이 진실 — 다음 2 폴링 주기 동안 폴링 값으로 덮어쓰지 않음
+      const value = pin === "led" ? res.ledOn ?? newVal : res.fanOn ?? newVal;
+      pendingRef.current[pin] = { value, cycles: 2 };
+      setReading((prev) =>
+        prev ? { ...prev, [pin === "led" ? "ledOn" : "fanOn"]: value } : prev
+      );
     }
     setBusy(false);
   };
@@ -216,23 +257,9 @@ export default function DeviceDetailPage() {
     }
   };
 
-  const aiAdvice = (r: SensorReading | null, cropName?: string): string => {
-    if (!r || !r.ok) return "센서 데이터를 기다리는 중입니다.";
-    const tips: string[] = [];
-    if (r.temp != null) {
-      if (r.temp >= 30) tips.push(`🌡️ 고온(${r.temp}°C) — 환기/차광 권장`);
-      else if (r.temp <= 10) tips.push(`🥶 저온(${r.temp}°C) — 보온 필요`);
-    }
-    if (r.hum != null) {
-      if (r.hum >= 80) tips.push(`💧 다습(${r.hum}%) — 통풍/팬 가동 권장`);
-      else if (r.hum <= 30) tips.push(`🏜️ 건조(${r.hum}%) — 가습 권장`);
-    }
-    if (r.soil != null) {
-      if (r.soil < 40) tips.push(`🚰 토양 건조(${r.soil}%) — 급수 필요`);
-      else if (r.soil > 85) tips.push(`⚠️ 토양 과습(${r.soil}%) — 급수 중단`);
-    }
-    if (tips.length === 0) return `${cropName || "작물"} 환경이 양호합니다 ✅`;
-    return tips.join("\n");
+  const minutesAgo = (iso: string | null, nowMs: number): number | null => {
+    if (!iso || !nowMs) return null;
+    return Math.max(0, Math.floor((nowMs - new Date(iso).getTime()) / 60000));
   };
 
   if (loading || !device) {
@@ -244,6 +271,9 @@ export default function DeviceDetailPage() {
   }
 
   const isDemo = device.blynk_token === "DEMO";
+
+  // 홈 리포트(lib/report.ts)와 동일한 cropGuide.assessEnvironment로 판정 통일
+  const env = reading && reading.ok ? assessEnvironment(reading, crop?.crop_name) : null;
 
   const chartData = logs.map((l) => ({
     time: new Date(l.measured_at).toLocaleTimeString("ko-KR", {
@@ -279,18 +309,19 @@ export default function DeviceDetailPage() {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/realtime" className="text-2xl">‹</Link>
-        <h1 className="text-base font-bold flex items-center gap-1.5">
-          {device.name}
-          {isDemo && (
-            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange/20 text-orange">
-              DEMO
-            </span>
-          )}
-        </h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader
+        backHref="/realtime"
+        title={
+          <span className="flex items-center gap-1.5">
+            {device.name}
+            {isDemo && (
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange/20 text-orange">
+                DEMO
+              </span>
+            )}
+          </span>
+        }
+      />
 
       <div className="flex border-b border-brd bg-bg-card flex-shrink-0">
         <button
@@ -350,7 +381,7 @@ export default function DeviceDetailPage() {
 
                 {device.camera_type === "usb" && cameraError && (
                   <div className="absolute inset-0 flex flex-col items-center justify-center text-white/60 px-4 text-center">
-                    <div className="text-4xl mb-2">⚠️</div>
+                    <WarningIcon className="w-9 h-9 mb-2" />
                     <p className="text-xs">{cameraError}</p>
                   </div>
                 )}
@@ -395,9 +426,18 @@ export default function DeviceDetailPage() {
                 disabled={!hasCamera || (device.camera_type === "usb" && !cameraStream)}
                 className="w-full mt-2 py-3 rounded-2xl bg-g1 text-white font-bold disabled:opacity-40 transition flex items-center justify-center gap-2"
               >
-                📸 스냅샷 → AI 진단
+                <CameraIcon className="w-4 h-4" /> 스냅샷 → AI 진단
               </button>
             </section>
+
+            <div className="flex items-center gap-1.5 mb-2 text-xs text-txt3">
+              {reading?.stale && (
+                <span className="px-1.5 py-0.5 rounded-full bg-gray-200 text-gray-500 font-bold text-[10px]">
+                  오프라인
+                </span>
+              )}
+              {reading?.recordedAt && <span>마지막 측정 {minutesAgo(reading.recordedAt, polledAt)}분 전</span>}
+            </div>
 
             <div className="grid grid-cols-3 gap-2 mb-4">
               <SensorCard label="온도" icon={<TempIcon className="w-7 h-7" />} value={reading?.temp} unit="°C" color="#F08080" />
@@ -426,15 +466,42 @@ export default function DeviceDetailPage() {
             </section>
 
             <section className="mb-5 p-4 rounded-2xl bg-g5">
-              <h3 className="text-sm font-bold text-g1 mb-2">🤖 AI 작물 상태 평가</h3>
-              <p className="text-sm text-txt whitespace-pre-line leading-relaxed">
-                {aiAdvice(reading, crop?.crop_name)}
-              </p>
+              <h3 className="text-sm font-bold text-g1 mb-2 flex items-center gap-1.5">
+                <RobotIcon className="w-5 h-5" /> AI 작물 상태 평가
+              </h3>
+              {reading?.stale ? (
+                <p className="text-sm text-txt2 leading-relaxed">
+                  최근 측정 데이터가 없어 평가를 표시할 수 없어요. 보드 연결 상태를 확인해주세요.
+                </p>
+              ) : env ? (
+                env.status === "ok" ? (
+                  <p className="text-sm text-txt leading-relaxed flex items-center gap-1.5">
+                    {crop?.crop_name || "작물"} 환경이 양호합니다 <CheckIcon className="w-4 h-4" />
+                  </p>
+                ) : (
+                  <div className="flex flex-col gap-1">
+                    {env.items
+                      .filter((it) => it.level !== "ok")
+                      .map((it, i) => {
+                        const ItemIcon = { "온도": TempIcon, "습도": HumidityIcon, "토양수분": SoilIcon }[it.kind];
+                        return (
+                          <p key={i} className="text-sm text-txt leading-relaxed flex items-center gap-1.5">
+                            <ItemIcon className="w-4 h-4 shrink-0" /> {it.text}
+                          </p>
+                        );
+                      })}
+                  </div>
+                )
+              ) : (
+                <p className="text-sm text-txt2 leading-relaxed">센서 데이터를 기다리는 중입니다.</p>
+              )}
             </section>
 
             {/* 디바이스 ID — 보드(펌웨어)를 이 디바이스에 연결할 때 사용 */}
             <section className="mb-5">
-              <p className="text-[11px] text-txt3 mb-1">🔌 디바이스 ID (보드 펌웨어 연결용)</p>
+              <p className="text-[11px] text-txt3 mb-1 flex items-center gap-1">
+                <PlugIcon className="w-3.5 h-3.5" /> 디바이스 ID (보드 펌웨어 연결용)
+              </p>
               <button
                 onClick={() => {
                   navigator.clipboard?.writeText(device.id);
@@ -443,7 +510,9 @@ export default function DeviceDetailPage() {
                 className="w-full text-left px-3 py-2.5 rounded-xl bg-bg-soft hover:bg-[#ECECE7] transition flex items-center justify-between gap-2"
               >
                 <span className="text-[11px] font-mono text-txt2 break-all">{device.id}</span>
-                <span className="text-xs text-g1 font-bold shrink-0">📋 복사</span>
+                <span className="text-xs text-g1 font-bold shrink-0 flex items-center gap-1">
+                  <RecordIcon className="w-3.5 h-3.5" /> 복사
+                </span>
               </button>
             </section>
           </>

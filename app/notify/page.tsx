@@ -2,12 +2,13 @@
 
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
-import Link from "next/link";
+import PageHeader from "@/components/PageHeader";
 import { getCurrentUser } from "@/lib/auth";
 import {
   fetchWeather, fetchLocationName, fetchNearbyPests, fetchPestForecast,
 } from "@/lib/api";
 import { generateAlerts, Alert } from "@/lib/alerts";
+import { PinIcon, CheckIcon } from "@/components/Icons";
 
 export default function NotifyPage() {
   const router = useRouter();
@@ -51,16 +52,12 @@ export default function NotifyPage() {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/home" className="text-2xl">‹</Link>
-        <h1 className="text-base font-bold">전체 알림</h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader title="전체 알림" backHref="/home" />
 
       <main className="flex-1 px-5 py-5">
         {cityName && (
-          <p className="text-sm text-txt2 mb-4">
-            📍 <span className="font-bold text-g1">{cityName}</span> 기준 ·{" "}
+          <p className="text-sm text-txt2 mb-4 flex items-center gap-1">
+            <PinIcon className="w-4 h-4" /> <span className="font-bold text-g1">{cityName}</span> 기준 ·{" "}
             {loading ? "확인 중..." : `${alerts.length}건`}
           </p>
         )}
@@ -94,7 +91,7 @@ export default function NotifyPage() {
           </div>
         ) : (
           <div className="text-center py-20">
-            <div className="text-4xl mb-3">✅</div>
+            <CheckIcon className="w-10 h-10 mb-3 mx-auto" />
             <p className="text-sm text-txt2">현재 특이 알림이 없습니다</p>
           </div>
         )}
