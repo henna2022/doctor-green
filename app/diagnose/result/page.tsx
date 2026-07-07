@@ -1,374 +1,53 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import { useState } from "react";
 import { saveDiagnosis } from "@/lib/diagnoses";
-import { searchDodam } from "@/lib/dodam";
-import { getMyDevices, readSensors } from "@/lib/sensors";
-import { assessEnvironment, getGuide, EnvAssessment } from "@/lib/cropGuide";
-import { CROP_NAMES } from "@/lib/cropCatalog";
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import {
   SearchIcon,
-  CameraIcon,
   WarningIcon,
   BookIcon,
-  SproutIcon,
-  PartyIcon,
-  LeafIcon,
-  AlertIcon,
   CheckIcon,
   RecordIcon,
-  TempIcon,
-  HumidityIcon,
-  SoilIcon,
 } from "@/components/Icons";
-
-// 병명 접두어 제거용 — "기타"는 실제 작물명이 아니라 제외
-const CROP_PREFIX_PATTERN = new RegExp(`^(${CROP_NAMES.filter((n) => n !== "기타").join("|")})\\s*`);
-
-// 진단 신뢰도 임계값 — 이 미만이면 판독 불가 처리
-const CONFIDENCE_THRESHOLD = 0.75;
-
-// HF Space 워밍 폴링 설정 — 3초 간격, 최대 10회
-const PING_INTERVAL_MS = 3000;
-const PING_MAX_ATTEMPTS = 10;
-
-// 진단 단계 상태
-type Stage = "analyzing" | "done" | "not_detected" | "low_confidence" | "error";
-
-// 분석 진행 세부 단계 — "모델 깨우는 중" → "분석 중"
-type AnalyzingPhase = "waking" | "analyzing";
-
-interface Detection {
-  name: string;
-  name_en: string;
-  confidence: number;
-  box: { x1: number; y1: number; x2: number; y2: number };
-}
-
-interface DiagnosisResult {
-  detected: true;
-  disease_name: string;
-  disease_name_en: string;
-  confidence: number;
-  severity: "경미" | "보통" | "심각";
-  count: number;
-  image_width: number;
-  image_height: number;
-  detections: Detection[];
-  all: Array<{ name: string; confidence: number }>;
-}
-
-// NCPMS 외부 모바일 도감 URL
-function ncpmsExternalUrl(sickKey: string): string {
-  return `https://ncpms.rda.go.kr/mobile/MobileSicknsDtlR.ms?dtlKey=${sickKey}&totalSearchYn=Y`;
-}
-
-// "딸기 흰가루병(잎)" → keyword="흰가루병" (cropName은 선택된 작물 기준으로 별도 전달)
-function normalizeForSearch(diseaseName: string, fallbackCropName: string): { keyword: string; cropName: string } {
-  let keyword = diseaseName;
-  keyword = keyword.replace(CROP_PREFIX_PATTERN, "");
-  keyword = keyword.replace(/\([^)]+\)/g, "").trim();
-  const cropName = fallbackCropName && fallbackCropName !== "미지정" ? fallbackCropName : "기타";
-  return { keyword, cropName };
-}
+import { useDiagnosis } from "./useDiagnosis";
+import { ncpmsExternalUrl, normalizeForSearch } from "./lib";
+import { AnalyzingScreen, ErrorScreen, NoDetectionScreen } from "./screens";
+import { HealthAssessment } from "./HealthAssessment";
+import { DetectionOverlay } from "./DetectionOverlay";
 
 export default function DiagnoseResultPage() {
-  const router = useRouter();
+  const {
+    stage,
+    analyzingPhase,
+    image,
+    crop,
+    cropId,
+    result,
+    errorMsg,
+    sensors,
+    ncpmsLoading,
+    ncpmsSickKey,
+  } = useDiagnosis();
 
-  const [stage, setStage] = useState<Stage>("analyzing");
-  const [image, setImage] = useState<string | null>(null);
-  const [crop, setCrop] = useState("");
-  const [cropId, setCropId] = useState<string | null>(null);
-  const [result, setResult] = useState<DiagnosisResult | null>(null);
-  const [errorMsg, setErrorMsg] = useState("");
   const [saved, setSaved] = useState(false);
   const [saving, setSaving] = useState(false);
-  const [sensors, setSensors] = useState<{ temp: number | null; hum: number | null; soil: number | null } | null>(null);
-
-  // NCPMS sickKey 매칭 (detail은 호출 X - SVC05 작동 안 함)
-  const [ncpmsLoading, setNcpmsLoading] = useState(false);
-  const [ncpmsSickKey, setNcpmsSickKey] = useState<string | null>(null);
-
-  // 분석 진행 단계 — "모델 깨우는 중" → "분석 중"
-  const [analyzingPhase, setAnalyzingPhase] = useState<AnalyzingPhase>("waking");
-
-  // HF Space warm 여부를 3초 간격 최대 10회 폴링으로 추적 → warm 확인되면 "분석 중"으로 전환
-  useEffect(() => {
-    let cancelled = false;
-    let attempts = 0;
-
-    const poll = async () => {
-      if (cancelled) return;
-      attempts += 1;
-      try {
-        const res = await fetch("/api/diagnose/ping");
-        const data = await res.json();
-        if (data.ok) {
-          if (!cancelled) setAnalyzingPhase("analyzing");
-          return;
-        }
-      } catch {
-        // 무시하고 재시도
-      }
-      if (!cancelled && attempts < PING_MAX_ATTEMPTS) {
-        setTimeout(poll, PING_INTERVAL_MS);
-      } else if (!cancelled) {
-        // 폴링 소진 — 그래도 진단 요청 자체는 진행 중이므로 분석 중 표기로 전환
-        setAnalyzingPhase("analyzing");
-      }
-    };
-
-    poll();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  // 진단 API 호출 (502/타임아웃/네트워크 오류 시 1회 자동 재시도)
-  async function requestDiagnose(img: string) {
-    const call = async () => {
-      const res = await fetch("/api/diagnose", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ imageBase64: img }),
-      });
-      const data = await res.json();
-      return { res, data };
-    };
-
-    let attempt: { res: Response; data: { error?: string; detail?: string; [k: string]: unknown } } | null = null;
-    let lastError: unknown = null;
-
-    for (let i = 0; i < 2; i++) {
-      try {
-        attempt = await call();
-        // 502/504(서버 오류)면 재시도, 그 외에는 성공/실패 여부와 무관하게 결과 확정
-        if (attempt.res.ok || (attempt.res.status !== 502 && attempt.res.status !== 504)) {
-          break;
-        }
-      } catch (e: unknown) {
-        lastError = e;
-        attempt = null;
-      }
-    }
-
-    if (!attempt) {
-      const msg = lastError instanceof Error ? lastError.message : String(lastError ?? "알 수 없는 오류");
-      return { ok: false as const, errorMsg: msg };
-    }
-
-    return { ok: attempt.res.ok && !attempt.data.error, data: attempt.data };
-  }
-
-  // 진단 API 호출
-  useEffect(() => {
-    const img = sessionStorage.getItem("diagnose_image");
-    const cropName = sessionStorage.getItem("diagnose_crop") ?? "";
-    const savedCropId = sessionStorage.getItem("diagnose_crop_id");
-
-    if (!img) {
-      router.replace("/diagnose");
-      return;
-    }
-    setImage(img);
-    setCrop(cropName);
-    setCropId(savedCropId || null);
-
-    // 종합 평가용 센서값 로드 (스냅샷에서 넘어온 값 우선, 없으면 내 디바이스 최신값)
-    (async () => {
-      const raw = sessionStorage.getItem("diagnose_sensors");
-      if (raw) {
-        try { setSensors(JSON.parse(raw)); return; } catch {}
-      }
-      const devices = await getMyDevices();
-      if (devices.length > 0) {
-        const r = await readSensors(devices[0].id);
-        if (r.ok) setSensors({ temp: r.temp, hum: r.hum, soil: r.soil });
-      }
-    })();
-
-    (async () => {
-      try {
-        const result = await requestDiagnose(img);
-
-        if (!result.ok) {
-          const data = result.data as { error?: string; detail?: string } | undefined;
-          setErrorMsg(data?.detail ?? data?.error ?? result.errorMsg ?? "알 수 없는 오류");
-          setStage("error");
-          return;
-        }
-
-        const data = result.data as unknown as {
-          detected: boolean;
-          confidence?: number;
-          [k: string]: unknown;
-        };
-
-        if (!data.detected) {
-          setStage("not_detected");
-          return;
-        }
-
-        // ✨ 신뢰도 체크: 임계값 미만이면 판독 불가 처리
-        console.log(`[Diagnose] confidence: ${data.confidence}, threshold: ${CONFIDENCE_THRESHOLD}`);
-        if (typeof data.confidence !== "number" || data.confidence < CONFIDENCE_THRESHOLD) {
-          setStage("low_confidence");
-          return;
-        }
-
-        setResult(data as unknown as DiagnosisResult);
-        setStage("done");
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setErrorMsg(msg);
-        setStage("error");
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // 진단 완료 후 NCPMS search로 sickKey 찾기 (외부 링크용)
-  useEffect(() => {
-    if (stage !== "done" || !result) return;
-
-    (async () => {
-      setNcpmsLoading(true);
-      try {
-        const { keyword, cropName } = normalizeForSearch(result.disease_name, crop);
-
-        let items = await searchDodam("disease", cropName, keyword);
-        if (items.length === 0) {
-          items = await searchDodam("disease", undefined, keyword);
-        }
-
-        if (items[0]) setNcpmsSickKey(items[0].sickKey);
-      } catch (e) {
-        console.error("NCPMS search error:", e);
-      } finally {
-        setNcpmsLoading(false);
-      }
-    })();
-  }, [stage, result, crop]);
 
   // ━━━ 분석 중 화면 ━━━
   if (stage === "analyzing") {
-    return (
-      <div className="phone-frame">
-        <PageHeader title="AI 진단 중" backHref="/diagnose" sticky={false} />
-
-        <main className="flex-1 flex flex-col items-center justify-center px-5">
-          {image && (
-            <div className="w-40 h-40 rounded-3xl overflow-hidden border-2 border-g3 mb-6">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="진단 중" className="w-full h-full object-cover" />
-            </div>
-          )}
-
-          <div className="w-12 h-12 border-4 border-g5 border-t-g1 rounded-full animate-spin mb-4" />
-
-          {/* 진행 단계 표시: 모델 깨우는 중 → 분석 중 */}
-          <div className="flex items-center gap-2 mb-2">
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-              analyzingPhase === "waking" ? "bg-g5 text-g1" : "bg-bg-soft text-txt3"
-            }`}>
-              1. 모델 깨우는 중
-            </span>
-            <span className="text-txt3">›</span>
-            <span className={`text-xs font-bold px-2.5 py-1 rounded-full ${
-              analyzingPhase === "analyzing" ? "bg-g5 text-g1" : "bg-bg-soft text-txt3"
-            }`}>
-              2. 분석 중
-            </span>
-          </div>
-
-          <p className="text-base font-bold text-g1 mb-1">
-            {analyzingPhase === "waking" ? "AI 모델을 깨우고 있어요" : "AI가 분석하고 있어요"}
-          </p>
-          <p className="text-sm text-txt2">잠시만 기다려주세요...</p>
-          <p className="text-xs text-txt3 mt-2">최대 1분 정도 소요될 수 있어요</p>
-        </main>
-      </div>
-    );
+    return <AnalyzingScreen image={image} analyzingPhase={analyzingPhase} />;
   }
 
   // ━━━ 병해 미감지 / 판독불가 → 종합 건강 평가 화면 ━━━
   if (stage === "not_detected" || stage === "low_confidence") {
     const unclear = stage === "low_confidence";
-    return (
-      <div className="phone-frame overflow-y-auto">
-        <PageHeader title="진단 결과" backHref="/diagnose" />
-
-        <main className="flex-1 px-5 py-5">
-          {image && (
-            <div className="w-full aspect-video rounded-2xl overflow-hidden border border-brd mb-4 bg-bg-card">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={image} alt="진단" className="w-full h-full object-contain" />
-            </div>
-          )}
-
-          {unclear && (
-            <div className="mb-4 p-3 rounded-xl bg-orange/10 text-xs text-orange leading-relaxed flex items-start gap-1.5">
-              <SearchIcon className="w-4 h-4 shrink-0 mt-0.5" />
-              <span>사진이 흐릿해 병해 판독은 어려웠어요. 잎·과실을 더 가까이 선명하게 찍으면 정확해져요.
-              <br />(아래 환경 평가는 센서 기준이라 그대로 유효해요)</span>
-            </div>
-          )}
-
-          <HealthAssessment detected={false} unclear={unclear} sensors={sensors} cropName={crop} />
-
-          <div className="flex flex-col gap-2.5 mt-2">
-            <Link
-              href="/diagnose"
-              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition flex items-center justify-center gap-1.5"
-            >
-              <CameraIcon className="w-4 h-4" /> 다시 진단하기
-            </Link>
-            <Link
-              href="/home"
-              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
-            >
-              홈으로
-            </Link>
-          </div>
-        </main>
-      </div>
-    );
+    return <NoDetectionScreen image={image} unclear={unclear} sensors={sensors} crop={crop} />;
   }
 
   // ━━━ 에러 화면 ━━━
   if (stage === "error") {
-    return (
-      <div className="phone-frame">
-        <PageHeader title="진단 실패" backHref="/diagnose" sticky={false} />
-
-        <main className="flex-1 flex flex-col items-center justify-center px-5 text-center">
-          <WarningIcon className="w-14 h-14 mb-3" />
-          <h2 className="text-xl font-bold mb-2">진단을 완료하지 못했어요</h2>
-          <p className="text-sm text-txt2 mb-2 leading-relaxed">{errorMsg}</p>
-          <p className="text-xs text-txt3 mb-6 leading-relaxed">
-            네트워크를 확인하고 다시 시도해주세요.<br />
-            (AI 서버가 절전 상태에서 깨어나는 중일 수 있어요)
-          </p>
-          <div className="flex flex-col gap-2.5 w-full">
-            <button
-              onClick={() => window.location.reload()}
-              className="w-full py-3.5 rounded-2xl bg-g1 text-white font-bold text-center hover:bg-g2 transition"
-            >
-              다시 시도
-            </button>
-            <Link
-              href="/diagnose"
-              className="w-full py-3.5 rounded-2xl border-2 border-brd text-txt2 font-bold text-center hover:bg-bg-card transition"
-            >
-              진단 페이지로
-            </Link>
-          </div>
-        </main>
-      </div>
-    );
+    return <ErrorScreen errorMsg={errorMsg} />;
   }
 
   // ━━━ 결과 화면 (실제 데이터) ━━━
@@ -420,72 +99,7 @@ export default function DiagnoseResultPage() {
 
       <main className="flex-1 pb-6">
         {/* 진단 이미지 + bbox 오버레이 */}
-        {image && (
-          <div
-            className="w-full overflow-hidden relative bg-bg-card"
-            style={
-              result.image_width && result.image_height
-                ? { aspectRatio: `${result.image_width} / ${result.image_height}` }
-                : { height: "224px" }
-            }
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={image} alt="진단 결과" className="w-full h-full object-contain" />
-
-            {result.image_width > 0 &&
-              result.image_height > 0 &&
-              result.detections?.length > 0 && (
-                <svg
-                  className="absolute inset-0 w-full h-full pointer-events-none"
-                  viewBox={`0 0 ${result.image_width} ${result.image_height}`}
-                  preserveAspectRatio="none"
-                >
-                  {result.detections.map((d, i) => {
-                    const bw = d.box.x2 - d.box.x1;
-                    const bh = d.box.y2 - d.box.y1;
-                    const fontSize = Math.max(result.image_width / 28, 24);
-                    const strokeW = Math.max(result.image_width / 180, 3);
-                    const labelOutside = d.box.y1 > fontSize * 1.3;
-                    const labelY = labelOutside
-                      ? d.box.y1 - fontSize * 0.4
-                      : d.box.y1 + fontSize;
-                    const labelBgY = labelOutside ? d.box.y1 - fontSize * 1.3 : d.box.y1;
-                    return (
-                      <g key={i}>
-                        <rect
-                          x={d.box.x1}
-                          y={d.box.y1}
-                          width={bw}
-                          height={bh}
-                          fill="none"
-                          stroke="#FF4444"
-                          strokeWidth={strokeW}
-                          rx="4"
-                        />
-                        <rect
-                          x={d.box.x1}
-                          y={labelBgY}
-                          width={fontSize * 3.2}
-                          height={fontSize * 1.3}
-                          fill="#FF4444"
-                          rx="2"
-                        />
-                        <text
-                          x={d.box.x1 + fontSize * 0.3}
-                          y={labelY}
-                          fill="white"
-                          fontSize={fontSize}
-                          fontWeight="bold"
-                        >
-                          {Math.round(d.confidence * 100)}%
-                        </text>
-                      </g>
-                    );
-                  })}
-                </svg>
-              )}
-          </div>
-        )}
+        {image && <DetectionOverlay image={image} result={result} />}
 
         <div className="px-5 py-5">
           {/* 진단명 + 신뢰도 */}
@@ -640,118 +254,5 @@ export default function DiagnoseResultPage() {
         </div>
       </main>
     </div>
-  );
-}
-
-// ━━━ 종합 건강 평가 (병해 결과 + 센서 환경) ━━━
-function HealthAssessment({
-  detected,
-  unclear,
-  diseaseName,
-  severity,
-  sensors,
-  cropName,
-}: {
-  detected: boolean;
-  unclear?: boolean;
-  diseaseName?: string;
-  severity?: string;
-  sensors: { temp: number | null; hum: number | null; soil: number | null } | null;
-  cropName: string;
-}) {
-  const guide = getGuide(cropName);
-  const env: EnvAssessment | null = sensors ? assessEnvironment(sensors, cropName) : null;
-
-  const palette = (l: string) =>
-    l === "bad"
-      ? { bg: "#FFEAEA", color: "#E05757" }
-      : l === "warn"
-      ? { bg: "#FFF4E5", color: "#D98A00" }
-      : { bg: "#E8F8F0", color: "#2E9E76" };
-
-  const envStatus = env?.status ?? "ok";
-  let EmojiIcon = SproutIcon;
-  let title = `${guide.label}에서 병해는 안 보여요`;
-  let sub = "더 가까이 선명하게 찍으면 정확도가 올라가요.";
-  let tone = "ok";
-
-  if (unclear) {
-    // 신뢰도 낮음 — 병해 없음 단정 대신 판독 불가 톤으로 안내
-    EmojiIcon = SearchIcon;
-    title = "확실하지 않아요";
-    sub = "다른 각도로 더 가까이, 선명하게 다시 찍어보세요.";
-    tone = "warn";
-  } else if (detected) {
-    EmojiIcon = WarningIcon;
-    title = `${diseaseName ?? "병해"}가 의심돼요${severity ? ` (${severity})` : ""}`;
-    sub = "아래 도감에서 방제법을 확인하고, 환경도 함께 관리하세요.";
-    tone = "warn";
-  } else if (env) {
-    if (envStatus === "ok") {
-      EmojiIcon = PartyIcon;
-      title = `${guide.label}가 잘 자라고 있어요!`;
-      sub = "병해도 없고 온·습·토양도 적정 범위예요. 지금처럼 관리해주세요.";
-      tone = "ok";
-    } else if (envStatus === "warn") {
-      EmojiIcon = LeafIcon;
-      title = "병해는 없지만 환경에 약간 주의가 필요해요";
-      sub = "아래 항목을 살짝 조정해주세요.";
-      tone = "warn";
-    } else {
-      EmojiIcon = AlertIcon;
-      title = "병해는 없지만 환경이 좋지 않아요";
-      sub = "아래 빨간 항목을 먼저 해결해주세요.";
-      tone = "bad";
-    }
-  }
-
-  const c = palette(tone);
-
-  return (
-    <section className="mb-5">
-      <h3 className="text-sm font-bold mb-2 flex items-center gap-1.5">
-        <SproutIcon className="w-4 h-4" /> 종합 건강 평가
-      </h3>
-
-      <div className="p-4 rounded-2xl border-2" style={{ background: c.bg, borderColor: c.color + "55" }}>
-        <div className="flex items-start gap-2">
-          <EmojiIcon className="w-7 h-7 shrink-0" />
-          <div>
-            <p className="text-sm font-extrabold" style={{ color: c.color }}>{title}</p>
-            <p className="text-xs text-txt2 mt-0.5 leading-relaxed">{sub}</p>
-          </div>
-        </div>
-      </div>
-
-      {env ? (
-        <div className="mt-2 flex flex-col gap-1.5">
-          {env.items.map((it, i) => {
-            const lc = palette(it.level);
-            const ItemIcon = { "온도": TempIcon, "습도": HumidityIcon, "토양수분": SoilIcon }[it.kind];
-            return (
-              <div key={i} className="flex items-start gap-2 p-2.5 rounded-xl bg-bg-soft">
-                <ItemIcon className="w-5 h-5 shrink-0" />
-                <div className="flex-1">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-xs font-bold">{it.kind}</span>
-                    <span className="text-xs font-extrabold" style={{ color: lc.color }}>
-                      {it.value}{it.kind === "온도" ? "°C" : "%"}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-txt2 leading-snug mt-0.5">{it.text}</p>
-                </div>
-              </div>
-            );
-          })}
-          <p className="text-[10px] text-txt3 text-center mt-0.5 flex items-center justify-center gap-1">
-            <LeafIcon className="w-3.5 h-3.5" /> {guide.tip}
-          </p>
-        </div>
-      ) : (
-        <p className="mt-2 text-[11px] text-txt3 text-center leading-relaxed">
-          연결된 센서가 없어 환경 평가는 생략했어요.<br />실시간 화면에서 <CameraIcon className="w-3.5 h-3.5 inline-block align-text-bottom" /> 스냅샷으로 진단하면 센서값이 함께 반영돼요.
-        </p>
-      )}
-    </section>
   );
 }
