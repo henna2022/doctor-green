@@ -150,7 +150,6 @@ export function useDiagnosis() {
         }
 
         // ✨ 신뢰도 체크: 임계값 미만이면 판독 불가 처리
-        console.log(`[Diagnose] confidence: ${data.confidence}, threshold: ${CONFIDENCE_THRESHOLD}`);
         if (typeof data.confidence !== "number" || data.confidence < CONFIDENCE_THRESHOLD) {
           setStage("low_confidence");
           return;
