@@ -1,25 +1,24 @@
 "use client";
 
-import Link from "next/link";
 import { CROP_GUIDE, OptimalRange } from "@/lib/cropGuide";
-import { TempIcon, HumidityIcon, SoilIcon } from "@/components/Icons";
+import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, LeafIcon, StrawberryIcon } from "@/components/Icons";
+import PageHeader from "@/components/PageHeader";
 
 export default function GuidePage() {
   const crops = Object.values(CROP_GUIDE);
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/home" className="text-2xl">‹</Link>
-        <h1 className="text-base font-bold">작물 키우기 가이드</h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader title="작물 키우기 가이드" backHref="/home" />
 
       <main className="flex-1 px-5 py-5">
-        <p className="text-xs text-txt2 mb-4 leading-relaxed">
-          작물별 <b className="text-g1">적정 온도·습도·토양수분</b> 범위와 재배 팁이에요.
-          실시간 화면에서 이 범위와 비교해 자동으로 평가도 해드려요. 🌱
-        </p>
+        <div className="flex items-start gap-2 mb-4">
+          <p className="text-xs text-txt2 leading-relaxed flex-1">
+            작물별 <b className="text-g1">적정 온도·습도·토양수분</b> 범위와 재배 팁이에요.
+            실시간 화면에서 이 범위와 비교해 자동으로 평가도 해드려요.
+          </p>
+          <LeafIcon className="w-5 h-5 shrink-0 mt-0.5" />
+        </div>
 
         <div className="flex flex-col gap-3.5">
           {crops.map((c) => (
@@ -36,10 +35,11 @@ export default function GuidePage() {
 }
 
 function CropCard({ c }: { c: OptimalRange }) {
+  const CropIcon = c.label === "딸기" ? StrawberryIcon : LeafIcon;
   return (
     <div className="rounded-2xl bg-bg-soft p-4">
       <div className="flex items-center gap-2 mb-3">
-        <span className="text-2xl">{c.emoji}</span>
+        <CropIcon className="w-7 h-7" />
         <h2 className="text-base font-extrabold">{c.label}</h2>
       </div>
 
@@ -49,9 +49,10 @@ function CropCard({ c }: { c: OptimalRange }) {
         <RangeBox icon={<SoilIcon className="w-6 h-6" />} label="토양수분" range={c.soil} unit="%" color="#4ECAA0" />
       </div>
 
-      <p className="text-xs text-txt2 leading-relaxed bg-g5 rounded-xl p-3">
-        💡 {c.tip}
-      </p>
+      <div className="flex items-start gap-2 text-xs text-txt2 leading-relaxed bg-g5 rounded-xl p-3">
+        <BulbIcon className="w-5 h-5 shrink-0 mt-0.5" />
+        <p>{c.tip}</p>
+      </div>
     </div>
   );
 }

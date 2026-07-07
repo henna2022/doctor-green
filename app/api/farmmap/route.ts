@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchUpstream } from "@/lib/upstream";
 
-const FARMMAP_KEY = "kUANNT3g+CJFAWSYRbk4I7jHAsUbOCiEPs+WdCmP8W+hP+vzeoApnfklBkp4LgJTFyFaP9tpVhtN6aaTtYL58g==";
+const FARMMAP_KEY = process.env.FARMMAP_KEY;
 
 interface FarmmapItem {
   cropName?: string;
@@ -21,17 +22,25 @@ function mapSeverity(lv?: string): "low" | "mid" | "high" {
   return "low";
 }
 
+// radius(km) 허용 범위 — 너무 작거나 비정상적으로 크면 업스트림 오류/과다 응답 유발
+const MIN_RADIUS = 1;
+const MAX_RADIUS = 50;
+
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
   const lat = parseFloat(searchParams.get("lat") || "");
   const lon = parseFloat(searchParams.get("lon") || "");
-  const radius = parseInt(searchParams.get("radius") || "10");
+  const radiusRaw = parseInt(searchParams.get("radius") || "10");
 
   if (isNaN(lat) || isNaN(lon)) {
-    return NextResponse.json([]);
+    return NextResponse.json({ error: "lat, lon required" }, { status: 400 });
   }
+  const radius = isNaN(radiusRaw)
+    ? 10
+    : Math.min(MAX_RADIUS, Math.max(MIN_RADIUS, radiusRaw));
+
   if (!FARMMAP_KEY) {
-    return NextResponse.json([]);
+    return NextResponse.json({ error: "FARMMAP_KEY 환경변수가 설정되지 않았습니다" }, { status: 500 });
   }
 
   try {
@@ -40,7 +49,7 @@ export async function GET(req: NextRequest) {
       `?serviceKey=${encodeURIComponent(FARMMAP_KEY)}` +
       `&lat=${lat}&lon=${lon}&radius=${radius}` +
       `&pageNo=1&numOfRows=20&type=json`;
-    const res = await fetch(url, { next: { revalidate: 3600 } });
+    const res = await fetchUpstream(url, { next: { revalidate: 3600 } });
     const data = await res.json();
 
     const items = data?.response?.body?.items?.item || [];
@@ -58,6 +67,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json(results);
   } catch (e) {
     console.error("Farmmap error:", e);
-    return NextResponse.json([]);
+    return NextResponse.json({ error: "Farmmap fetch failed" }, { status: 502 });
   }
 }

@@ -2,11 +2,12 @@
 
 import { Suspense } from "react";
 import DodamList from "@/components/DodamList";
+import { LeafIcon } from "@/components/Icons";
 
 export default function DiseasePage() {
   return (
     <Suspense fallback={<DodamLoading />}>
-      <DodamList title="질병 도감" type="disease" emptyEmoji="🌿" />
+      <DodamList title="질병 도감" type="disease" emptyIcon={<LeafIcon className="w-full h-full" />} />
     </Suspense>
   );
 }

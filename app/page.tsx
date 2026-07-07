@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { LeafIcon } from "@/components/Icons";
 
 export default function HomePage() {
   return (
@@ -14,9 +15,9 @@ export default function HomePage() {
       >
         {/* 로고 */}
         <div className="w-24 h-24 rounded-3xl bg-white/15 backdrop-blur-md
-                        flex items-center justify-center text-6xl mb-6
+                        flex items-center justify-center mb-6
                         border border-white/20">
-          🌿
+          <LeafIcon className="w-14 h-14" />
         </div>
 
         {/* 제목 */}

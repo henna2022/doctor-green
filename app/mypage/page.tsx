@@ -3,19 +3,11 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
 import { getCurrentUser, signOut, updateProfile } from "@/lib/auth";
 import Link from "next/dist/client/link";
-
-const CROP_OPTIONS = [
-  { emoji: "🍅", name: "토마토" },
-  { emoji: "🌶️", name: "고추" },
-  { emoji: "🍓", name: "딸기" },
-  { emoji: "🥒", name: "오이" },
-  { emoji: "🍑", name: "복숭아" },
-  { emoji: "🍎", name: "사과" },
-  { emoji: "🥬", name: "배추" },
-  { emoji: "🌾", name: "기타" },
-];
+import { LeafIcon, StrawberryIcon, HouseIcon, FieldIcon, MixedIcon, FarmerIcon, RecordIcon } from "@/components/Icons";
+import { CROP_CATALOG as CROP_OPTIONS } from "@/lib/cropCatalog";
 
 const FARM_TYPES = [
   { emoji: "🏠", name: "시설하우스" },
@@ -54,6 +46,18 @@ export default function MyPage() {
     load();
   }, [router]);
 
+  const getCropIcon = (name: string) => {
+    if (name === "딸기") return StrawberryIcon;
+    return LeafIcon;
+  };
+
+  const getFarmTypeIcon = (name: string) => {
+    if (name === "시설하우스") return HouseIcon;
+    if (name === "노지") return FieldIcon;
+    if (name === "혼합") return MixedIcon;
+    return HouseIcon;
+  };
+
   const toggleCrop = (crop: string) => {
     if (crops.includes(crop)) {
       setCrops(crops.filter((c) => c !== crop));
@@ -91,25 +95,27 @@ export default function MyPage() {
 
   return (
     <div className="phone-frame">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <div className="w-12" />
-        <h1 className="text-base font-bold">마이 페이지</h1>
-        {editing ? (
-          <button onClick={handleSave} disabled={saving} className="text-sm text-g1 font-bold w-12 text-right">
-            {saving ? "..." : "저장"}
-          </button>
-        ) : (
-          <button onClick={() => setEditing(true)} className="text-sm text-g2 w-12 text-right">
-            수정
-          </button>
-        )}
-      </header>
+      <PageHeader
+        title="마이 페이지"
+        leftWidthClass="w-12"
+        rightAction={
+          editing ? (
+            <button onClick={handleSave} disabled={saving} className="text-sm text-g1 font-bold w-12 text-right">
+              {saving ? "..." : "저장"}
+            </button>
+          ) : (
+            <button onClick={() => setEditing(true)} className="text-sm text-g2 w-12 text-right">
+              수정
+            </button>
+          )
+        }
+      />
 
       <main className="flex-1 px-5 py-5 pb-2">
         {/* 프로필 카드 */}
         <div className="flex items-center gap-4 mb-6 p-4 rounded-2xl bg-g5">
-          <div className="w-16 h-16 rounded-full bg-g1 flex items-center justify-center text-3xl">
-            🧑‍🌾
+          <div className="w-16 h-16 rounded-full bg-g1 flex items-center justify-center">
+            <FarmerIcon className="w-9 h-9" />
           </div>
           <div>
             <h2 className="text-lg font-extrabold text-g1">{name || "농부"}님</h2>
@@ -157,16 +163,18 @@ export default function MyPage() {
             <div className="flex flex-wrap gap-1.5">
               {CROP_OPTIONS.map((crop) => {
                 const isActive = crops.includes(crop.name);
+                const CropIcon = getCropIcon(crop.name);
                 return (
                   <button
                     key={crop.name}
                     type="button"
                     onClick={() => toggleCrop(crop.name)}
-                    className={`px-3 py-2 rounded-full border-2 text-xs transition ${
+                    className={`px-3 py-2 rounded-full border-2 text-xs transition flex items-center gap-1.5 ${
                       isActive ? "bg-g5 border-g3 text-g1 font-bold" : "border-brd text-txt2 bg-bg-card"
                     }`}
                   >
-                    {crop.emoji} {crop.name}
+                    <CropIcon className="w-4 h-4" />
+                    {crop.name}
                   </button>
                 );
               })}
@@ -193,16 +201,17 @@ export default function MyPage() {
             <div className="grid grid-cols-3 gap-2">
               {FARM_TYPES.map((type) => {
                 const isActive = farmType === type.name;
+                const FarmIcon = getFarmTypeIcon(type.name);
                 return (
                   <button
                     key={type.name}
                     type="button"
                     onClick={() => setFarmType(type.name)}
-                    className={`py-3 px-2 rounded-xl border-2 text-xs transition ${
+                    className={`py-3 px-2 rounded-xl border-2 text-xs transition flex flex-col items-center ${
                       isActive ? "bg-g5 border-g3 text-g1 font-bold" : "border-brd text-txt2 bg-bg-card"
                     }`}
                   >
-                    <div className="text-lg mb-1">{type.emoji}</div>
+                    <FarmIcon className="w-6 h-6 mb-1" />
                     {type.name}
                   </button>
                 );
@@ -220,7 +229,9 @@ export default function MyPage() {
           href="/history"
           className="flex items-center justify-between w-full py-3.5 px-4 rounded-2xl bg-bg-soft mb-3 hover:bg-[#ECECE7] transition"
         >
-          <span className="text-sm font-bold">📋 내 진단 기록</span>
+          <span className="text-sm font-bold flex items-center gap-1.5">
+            <RecordIcon className="w-5 h-5" /> 내 진단 기록
+          </span>
           <span className="text-txt3">›</span>
         </Link>
 

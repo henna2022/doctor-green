@@ -18,6 +18,8 @@ export interface SensorReading {
   ledOn: boolean;
   fanOn: boolean;
   ok: boolean;       // 통신 성공 여부
+  recordedAt: string | null; // 마지막 측정 시각 (ISO)
+  stale: boolean;     // 마지막 측정이 10분 넘게 지남
 }
 
 // ━━━ 디바이스 CRUD ━━━
@@ -72,6 +74,9 @@ export async function deleteDevice(id: string) {
   return { error: null };
 }
 
+// 마지막 측정 후 이 시간이 지나면 stale(오프라인) 처리
+const STALE_MS = 10 * 60 * 1000;
+
 // DEMO 디바이스용 시뮬레이션 값 (실제 하드웨어 없이 화면 확인용)
 function simulate(): SensorReading {
   const baseTemp = 22 + Math.sin(Date.now() / 60000) * 3;
@@ -84,6 +89,8 @@ function simulate(): SensorReading {
     ledOn: false,
     fanOn: false,
     ok: true,
+    recordedAt: new Date().toISOString(),
+    stale: false,
   };
 }
 
@@ -110,6 +117,8 @@ export async function readSensors(deviceId: string): Promise<SensorReading> {
 
   const row = data?.[0];
   if (!error && row) {
+    const recordedAt = row.recorded_at ?? null;
+    const stale = !recordedAt || Date.now() - new Date(recordedAt).getTime() > STALE_MS;
     return {
       temp: row.temp ?? null,
       hum: row.hum ?? null,
@@ -117,25 +126,30 @@ export async function readSensors(deviceId: string): Promise<SensorReading> {
       ledOn,
       fanOn,
       ok: true,
+      recordedAt,
+      stale,
     };
   }
 
   // 실데이터가 없는 DEMO 디바이스 → 시뮬레이션 (제어상태는 유지)
   if (dev?.blynk_token === "DEMO") return { ...simulate(), ledOn, fanOn };
 
-  return { temp: null, hum: null, soil: null, ledOn, fanOn, ok: false };
+  return { temp: null, hum: null, soil: null, ledOn, fanOn, ok: false, recordedAt: null, stale: true };
 }
 
 // ━━━ 액추에이터 제어 ━━━
 // 앱이 devices.led_on/fan_on 을 업데이트 → ESP32가 그 값을 폴링해 GPIO 제어.
+// 갱신된 행을 그대로 돌려줘서(.select().single()) 호출부가 이 값을 진실로 삼게 함.
 export async function writeActuator(deviceId: string, pin: "led" | "fan", value: boolean) {
   const col = pin === "led" ? "led_on" : "fan_on";
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("devices")
     .update({ [col]: value })
-    .eq("id", deviceId);
+    .eq("id", deviceId)
+    .select("led_on, fan_on")
+    .single();
   if (error) return { error: error.message };
-  return { error: null };
+  return { error: null, ledOn: data.led_on ?? false, fanOn: data.fan_on ?? false };
 }
 
 // ━━━ 차트용 데이터 포인트 ━━━

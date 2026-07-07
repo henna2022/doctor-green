@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchUpstream } from "@/lib/upstream";
 
 const KMA_KEY = process.env.KMA_KEY;
 
@@ -29,19 +30,21 @@ function latLonToKmaGrid(lat: number, lon: number) {
 }
 
 // 기상청 base_date/base_time 계산
+// 서버 로컬 타임존에 의존하지 않도록 KST(UTC+9)로 고정해 계산한다.
+// (Date.getHours() 등은 서버 로케일에 따라 달라지므로 UTC 게터 + 9시간 오프셋으로 대체)
 function getKmaBaseTime() {
-  const now = new Date(Date.now() - 10 * 60 * 1000);
+  const kst = new Date(Date.now() - 10 * 60 * 1000 + 9 * 3600 * 1000);
   const BASE_HOURS = [2, 5, 8, 11, 14, 17, 20, 23];
-  const h = now.getHours();
+  const h = kst.getUTCHours();
   let baseHour = BASE_HOURS[0];
   for (let i = BASE_HOURS.length - 1; i >= 0; i--) {
     if (h >= BASE_HOURS[i]) { baseHour = BASE_HOURS[i]; break; }
   }
-  const d = new Date(now);
-  if (h < 2) { d.setDate(d.getDate() - 1); baseHour = 23; }
-  const yyyy = d.getFullYear();
-  const mm = String(d.getMonth() + 1).padStart(2, "0");
-  const dd = String(d.getDate()).padStart(2, "0");
+  const d = new Date(kst);
+  if (h < 2) { d.setUTCDate(d.getUTCDate() - 1); baseHour = 23; }
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
   const hh = String(baseHour).padStart(2, "0");
   return { base_date: `${yyyy}${mm}${dd}`, base_time: `${hh}00` };
 }
@@ -79,7 +82,7 @@ export async function GET(req: NextRequest) {
     `&nx=${grid.nx}&ny=${grid.ny}`;
 
   try {
-    const res = await fetch(url, { next: { revalidate: 600 } }); // 10분 캐시
+    const res = await fetchUpstream(url, { next: { revalidate: 600 } }); // 10분 캐시
     const data = await res.json();
     const parsed = parseKma(data);
     if (!parsed) {
@@ -107,9 +110,9 @@ function parseKma(raw: {
   if (!today) return null;
   const todayItems = items.filter((it) => it.fcstDate === today);
 
-  // 현재 시각 (가장 가까운 미래 정시)
-  const now = new Date();
-  const curHour = String(now.getHours()).padStart(2, "0") + "00";
+  // 현재 시각 (가장 가까운 미래 정시) — KST 고정
+  const nowKst = new Date(Date.now() + 9 * 3600 * 1000);
+  const curHour = String(nowKst.getUTCHours()).padStart(2, "0") + "00";
 
   // 집계 변수
   let currentTemp: number | null = null;

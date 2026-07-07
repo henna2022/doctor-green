@@ -4,17 +4,8 @@ import Link from "next/link";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { signUp } from "@/lib/auth";
-
-const CROP_OPTIONS = [
-  { emoji: "🍅", name: "토마토" },
-  { emoji: "🌶️", name: "고추" },
-  { emoji: "🍓", name: "딸기" },
-  { emoji: "🥒", name: "오이" },
-  { emoji: "🍑", name: "복숭아" },
-  { emoji: "🍎", name: "사과" },
-  { emoji: "🥬", name: "배추" },
-  { emoji: "🌾", name: "기타" },
-];
+import { LeafIcon, StrawberryIcon, HouseIcon, FieldIcon, MixedIcon } from "@/components/Icons";
+import { CROP_CATALOG as CROP_OPTIONS } from "@/lib/cropCatalog";
 
 const FARM_TYPES = [
   { emoji: "🏠", name: "시설하우스" },
@@ -38,6 +29,18 @@ export default function SignupPage() {
   // UI 상태
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  const getCropIcon = (name: string) => {
+    if (name === "딸기") return StrawberryIcon;
+    return LeafIcon;
+  };
+
+  const getFarmTypeIcon = (name: string) => {
+    if (name === "시설하우스") return HouseIcon;
+    if (name === "노지") return FieldIcon;
+    if (name === "혼합") return MixedIcon;
+    return HouseIcon;
+  };
 
   const toggleCrop = (crop: string) => {
     if (selectedCrops.includes(crop)) {
@@ -89,9 +92,12 @@ export default function SignupPage() {
       </header>
 
       <main className="flex-1 px-5 py-6">
-        <h2 className="text-2xl font-extrabold mb-2 tracking-tight">
-          닥터 그린과 함께 🌱
-        </h2>
+        <div className="flex items-center gap-2 mb-2">
+          <h2 className="text-2xl font-extrabold tracking-tight">
+            닥터 그린과 함께
+          </h2>
+          <LeafIcon className="w-7 h-7" />
+        </div>
         <p className="text-sm text-txt2 mb-6">
           몇 가지 정보만 입력하면 바로 시작할 수 있어요
         </p>
@@ -162,18 +168,20 @@ export default function SignupPage() {
             <div className="flex flex-wrap gap-1.5">
               {CROP_OPTIONS.map((crop) => {
                 const isActive = selectedCrops.includes(crop.name);
+                const CropIcon = getCropIcon(crop.name);
                 return (
                   <button
                     key={crop.name}
                     type="button"
                     onClick={() => toggleCrop(crop.name)}
-                    className={`px-3 py-2 rounded-full border-2 text-xs transition ${
+                    className={`px-3 py-2 rounded-full border-2 text-xs transition flex items-center gap-1.5 ${
                       isActive
                         ? "bg-g5 border-g3 text-g1 font-bold"
                         : "border-brd text-txt2 bg-bg-card"
                     }`}
                   >
-                    {crop.emoji} {crop.name}
+                    <CropIcon className="w-4 h-4" />
+                    {crop.name}
                   </button>
                 );
               })}
@@ -185,18 +193,19 @@ export default function SignupPage() {
             <div className="grid grid-cols-3 gap-2">
               {FARM_TYPES.map((type) => {
                 const isActive = farmType === type.name;
+                const FarmIcon = getFarmTypeIcon(type.name);
                 return (
                   <button
                     key={type.name}
                     type="button"
                     onClick={() => setFarmType(type.name)}
-                    className={`py-3 px-2 rounded-xl border-2 text-xs transition ${
+                    className={`py-3 px-2 rounded-xl border-2 text-xs transition flex flex-col items-center ${
                       isActive
                         ? "bg-g5 border-g3 text-g1 font-bold"
                         : "border-brd text-txt2 bg-bg-card"
                     }`}
                   >
-                    <div className="text-lg mb-1">{type.emoji}</div>
+                    <FarmIcon className="w-6 h-6 mb-1" />
                     {type.name}
                   </button>
                 );

@@ -1,6 +1,8 @@
 // ━━━ 작물별 생육 최적범위 + 환경 평가 ━━━
 // AI 진단(②)과 작물 가이드라인(③)에서 공용으로 사용.
 
+import { getCropEmoji } from "./cropCatalog";
+
 export interface OptimalRange {
   label: string;
   emoji: string;
@@ -10,14 +12,14 @@ export interface OptimalRange {
   tip: string;            // 한 줄 재배 팁
 }
 
-// 대표 작물 최적범위 (원예 일반 기준)
+// 대표 작물 최적범위 (원예 일반 기준) — 이름/이모지는 cropCatalog가 단일 소스
 export const CROP_GUIDE: Record<string, OptimalRange> = {
-  "딸기":   { label: "딸기",   emoji: "🍓", temp: [18, 24], hum: [60, 75], soil: [40, 70], tip: "서늘하고 통풍 잘되는 환경을 좋아해요. 과습에 약하니 물은 흙이 마르면 주세요." },
-  "토마토": { label: "토마토", emoji: "🍅", temp: [20, 28], hum: [60, 80], soil: [50, 75], tip: "햇빛을 많이 받게 하고, 물은 규칙적으로 주되 잎에는 닿지 않게 하세요." },
-  "상추":   { label: "상추",   emoji: "🥬", temp: [15, 22], hum: [60, 80], soil: [50, 75], tip: "서늘한 환경에서 잘 자라요. 흙이 마르지 않게 자주 살짝 주세요." },
-  "고추":   { label: "고추",   emoji: "🌶️", temp: [22, 30], hum: [55, 75], soil: [45, 70], tip: "따뜻하고 햇빛 많은 곳을 좋아해요. 과습보다 약간 건조하게 관리하세요." },
-  "오이":   { label: "오이",   emoji: "🥒", temp: [22, 28], hum: [70, 85], soil: [55, 80], tip: "물을 많이 좋아해요. 습도와 토양수분을 넉넉히 유지하세요." },
-  "바질":   { label: "바질",   emoji: "🌿", temp: [20, 28], hum: [50, 70], soil: [45, 70], tip: "따뜻하고 햇빛 좋은 곳. 흙 표면이 마르면 물을 주세요." },
+  "딸기":   { label: "딸기",   emoji: getCropEmoji("딸기"),   temp: [18, 24], hum: [60, 75], soil: [40, 70], tip: "서늘하고 통풍 잘되는 환경을 좋아해요. 과습에 약하니 물은 흙이 마르면 주세요." },
+  "토마토": { label: "토마토", emoji: getCropEmoji("토마토"), temp: [20, 28], hum: [60, 80], soil: [50, 75], tip: "햇빛을 많이 받게 하고, 물은 규칙적으로 주되 잎에는 닿지 않게 하세요." },
+  "상추":   { label: "상추",   emoji: getCropEmoji("상추"),   temp: [15, 22], hum: [60, 80], soil: [50, 75], tip: "서늘한 환경에서 잘 자라요. 흙이 마르지 않게 자주 살짝 주세요." },
+  "고추":   { label: "고추",   emoji: getCropEmoji("고추"),   temp: [22, 30], hum: [55, 75], soil: [45, 70], tip: "따뜻하고 햇빛 많은 곳을 좋아해요. 과습보다 약간 건조하게 관리하세요." },
+  "오이":   { label: "오이",   emoji: getCropEmoji("오이"),   temp: [22, 28], hum: [70, 85], soil: [55, 80], tip: "물을 많이 좋아해요. 습도와 토양수분을 넉넉히 유지하세요." },
+  "바질":   { label: "바질",   emoji: getCropEmoji("바질"),   temp: [20, 28], hum: [50, 70], soil: [45, 70], tip: "따뜻하고 햇빛 좋은 곳. 흙 표면이 마르면 물을 주세요." },
 };
 
 export const DEFAULT_GUIDE: OptimalRange = {

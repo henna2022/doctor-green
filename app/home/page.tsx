@@ -17,6 +17,7 @@ import {
   PlantIcon,
   RealtimeIcon,
 } from "@/components/HomeIllustrations";
+import { TempIcon, HumidityIcon, SoilIcon, CheckIcon } from "@/components/Icons";
 import { getCurrentUser } from "@/lib/auth";
 import {
   fetchWeather,
@@ -55,6 +56,7 @@ export default function HomePage() {
   const [report, setReport] = useState<DailyReport | null>(null);
   const [reportDevice, setReportDevice] = useState<{ id: string; name: string } | null>(null);
   const [reportLoading, setReportLoading] = useState(true);
+  const [isDemoDevice, setIsDemoDevice] = useState(false);
 
   useEffect(() => {
     async function loadUser() {
@@ -80,6 +82,11 @@ export default function HomePage() {
         return;
       }
       setReportDevice({ id: dev.id, name: dev.name });
+      if (dev.blynk_token === "DEMO") {
+        setIsDemoDevice(true);
+        setReportLoading(false);
+        return;
+      }
       const crop = dev.crop_id ? await getCropById(dev.crop_id) : null;
       const rep = await getDailyReport(dev.id, crop?.crop_name);
       setReport(rep);
@@ -184,7 +191,15 @@ export default function HomePage() {
             <div className="p-4 rounded-2xl bg-[#F3F3EF] text-center">
               <p className="text-sm text-txt3">리포트 생성 중...</p>
             </div>
-          ) : !report || !reportDevice ? (
+          ) : !reportDevice ? (
+            <Link href="/realtime" className="block p-4 rounded-2xl bg-[#F3F3EF] text-center">
+              <p className="text-sm text-txt3">연결된 디바이스가 없어요. 실시간 분석에서 추가해보세요 ›</p>
+            </Link>
+          ) : isDemoDevice ? (
+            <div className="p-4 rounded-2xl bg-[#F3F3EF] text-center">
+              <p className="text-sm text-txt3">데모 모드 — 실제 센서를 연결하면 하루 리포트가 생성돼요</p>
+            </div>
+          ) : !report ? (
             <Link href="/realtime" className="block p-4 rounded-2xl bg-[#F3F3EF] text-center">
               <p className="text-sm text-txt3">연결된 디바이스가 없어요. 실시간 분석에서 추가해보세요 ›</p>
             </Link>
@@ -211,13 +226,22 @@ export default function HomePage() {
                   <div className="grid grid-cols-3 gap-2">
                     {report.env.items.map((it, i) => {
                       const col = it.level === "bad" ? "#E05757" : it.level === "warn" ? "#D98A00" : "#2E9E76";
+                      const IconComponent = { "온도": TempIcon, "습도": HumidityIcon, "토양수분": SoilIcon }[it.kind];
+                      const unit = it.kind === "온도" ? "°" : "%";
+                      const rangeKey = it.kind === "온도" ? "temp" : it.kind === "습도" ? "hum" : "soil";
+                      const range = report.range[rangeKey];
                       return (
                         <div key={i} className="rounded-xl bg-white/70 p-2.5 text-center">
-                          <div className="text-base leading-none mb-1">{it.icon}</div>
+                          <div className="mb-1 flex justify-center"><IconComponent className="w-6 h-6" /></div>
                           <div className="text-base font-extrabold" style={{ color: col }}>
-                            {it.value}{it.kind === "온도" ? "°" : "%"}
+                            {it.value}{unit}
                           </div>
                           <div className="text-[10px] text-txt3">{it.kind} 평균</div>
+                          {range && (
+                            <div className="text-[9px] text-txt3 mt-0.5">
+                              최저 {range[0]}{unit} ~ 최고 {range[1]}{unit}
+                            </div>
+                          )}
                         </div>
                       );
                     })}
@@ -230,6 +254,14 @@ export default function HomePage() {
                         .map((it, i) => (
                           <p key={i} className="text-[11px] text-txt2 leading-snug">• {it.text}</p>
                         ))}
+                    </div>
+                  )}
+
+                  {report.warnings.length > 0 && (
+                    <div className="mt-2 flex flex-col gap-1">
+                      {report.warnings.map((w, i) => (
+                        <p key={i} className="text-[11px] text-txt2 leading-snug">• {w}</p>
+                      ))}
                     </div>
                   )}
 
@@ -268,7 +300,10 @@ export default function HomePage() {
               ))
             ) : (
               <div className="p-4 rounded-2xl bg-g5 text-center">
-                <p className="text-sm text-g1 font-medium">현재 특이 알림이 없습니다 ✅</p>
+                <div className="flex items-center justify-center gap-2">
+                  <CheckIcon className="w-5 h-5" />
+                  <p className="text-sm text-g1 font-medium">현재 특이 알림이 없습니다</p>
+                </div>
               </div>
             )}
           </div>

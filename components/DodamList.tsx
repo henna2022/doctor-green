@@ -2,8 +2,9 @@
 
 import { useState, useEffect } from "react";
 import { useSearchParams } from "next/navigation";
-import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
+import PageHeader from "@/components/PageHeader";
+import { LeafIcon } from "@/components/Icons";
 
 import {
   searchDodam,
@@ -15,10 +16,10 @@ import {
 interface DodamListProps {
   title: string;
   type: DodamType;
-  emptyEmoji: string;
+  emptyIcon: React.ReactNode;
 }
 
-export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
+export default function DodamList({ title, type, emptyIcon }: DodamListProps) {
   const searchParams = useSearchParams();
   const initialCrop = searchParams.get("crop") || "";
   const initialKeyword = searchParams.get("keyword") || "";
@@ -49,11 +50,7 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
 
   return (
     <div className="phone-frame overflow-y-auto">
-      <header className="flex items-center justify-between px-5 py-4 border-b border-brd sticky top-0 bg-bg-main z-10">
-        <Link href="/home" className="text-2xl">‹</Link>
-        <h1 className="text-base font-bold">{title}</h1>
-        <div className="w-6" />
-      </header>
+      <PageHeader title={title} backHref="/home" />
 
       <main className="flex-1 px-5 py-5">
         {/* 검색창 */}
@@ -128,13 +125,15 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
                     // eslint-disable-next-line @next/next/no-img-element
                     <img src={item.imageUrl} alt={item.name} className="w-full h-full object-cover" />
                   ) : (
-                    <span className="text-2xl">{emptyEmoji}</span>
+                    <span className="w-7 h-7 inline-flex items-center justify-center">{emptyIcon}</span>
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <h3 className="text-sm font-bold text-g1 mb-0.5 truncate">{item.name}</h3>
                   {item.crop && (
-                    <p className="text-xs text-txt2 mb-1 truncate">🌱 {item.crop}</p>
+                    <p className="text-xs text-txt2 mb-1 truncate flex items-center gap-1">
+                      <LeafIcon className="w-3.5 h-3.5 shrink-0" /> {item.crop}
+                    </p>
                   )}
                   {item.nameSci && (
                     <p className="text-[10px] text-txt3 italic truncate">{item.nameSci}</p>
@@ -146,7 +145,9 @@ export default function DodamList({ title, type, emptyEmoji }: DodamListProps) {
           </div>
         ) : (
           <div className="text-center py-20">
-            <div className="text-4xl mb-3">{emptyEmoji}</div>
+            <div className="flex justify-center mb-3">
+              <span className="w-10 h-10 inline-flex items-center justify-center">{emptyIcon}</span>
+            </div>
             <p className="text-sm text-txt2">검색 결과가 없습니다</p>
           </div>
         )}

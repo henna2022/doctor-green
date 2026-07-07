@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { fetchUpstream } from "@/lib/upstream";
 
 export async function GET(req: NextRequest) {
   const searchParams = req.nextUrl.searchParams;
@@ -9,11 +10,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ name: "현재 위치" });
   }
 
+  // 캐시 적중률을 위해 좌표를 소수 2자리(약 1.1km 격자)로 반올림해 요청 URL을 만든다.
+  // (fetch의 캐시 키는 URL 기준이라, 원본 좌표를 그대로 쓰면 소수점 차이마다 캐시 미스가 난다)
+  const latRounded = Math.round(lat * 100) / 100;
+  const lonRounded = Math.round(lon * 100) / 100;
+
   try {
     const url =
       `https://nominatim.openstreetmap.org/reverse` +
-      `?lat=${lat}&lon=${lon}&format=json&accept-language=ko`;
-    const res = await fetch(url, {
+      `?lat=${latRounded}&lon=${lonRounded}&format=json&accept-language=ko`;
+    const res = await fetchUpstream(url, {
       headers: { "User-Agent": "doctor-green/1.0" },
       next: { revalidate: 3600 },
     });
