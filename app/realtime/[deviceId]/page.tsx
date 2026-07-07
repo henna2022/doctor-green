@@ -14,7 +14,7 @@ import {
 } from "@/lib/sensors";
 import { getCropById, MyCrop } from "@/lib/crops";
 import { assessEnvironment } from "@/lib/cropGuide";
-import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, FanIcon, CameraIcon, WarningIcon, RobotIcon, CheckIcon, PlugIcon, RecordIcon } from "@/components/Icons";
+import { TempIcon, HumidityIcon, SoilIcon, BulbIcon, FanIcon, CameraIcon, WarningIcon, RobotIcon, CheckIcon, PlugIcon, RecordIcon, FlaskIcon, ChartIcon } from "@/components/Icons";
 import {
   LineChart,
   Line,
@@ -316,7 +316,7 @@ export default function DeviceDetailPage() {
             {device.name}
             {isDemo && (
               <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange/20 text-orange">
-                DEMO
+                체험용
               </span>
             )}
           </span>
@@ -343,6 +343,18 @@ export default function DeviceDetailPage() {
       </div>
 
       <main className="flex-1 px-5 py-5 pb-2">
+        {isDemo ? (
+          <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-orange/10 border border-orange/40 text-xs text-[#B87A2E] flex items-center gap-1.5">
+            <FlaskIcon className="w-4 h-4 shrink-0" />
+            <span>체험용 기기예요 — 실제 센서가 아닌 시뮬레이션 값입니다.</span>
+          </div>
+        ) : reading?.stale ? (
+          <div className="mb-4 px-3.5 py-2.5 rounded-xl bg-red/10 border border-red text-xs text-red flex items-center gap-1.5">
+            <WarningIcon className="w-4 h-4 shrink-0" />
+            <span>센서 응답 없음 — 마지막 값 기준입니다.</span>
+          </div>
+        ) : null}
+
         {activeTab === "live" && (
           <>
             <section className="mb-5">
@@ -587,8 +599,15 @@ export default function DeviceDetailPage() {
                 </div>
               </>
             ) : (
-              <div className="text-center py-10 text-txt3 text-sm">
-                {isToday ? "아직 오늘 데이터가 부족해요." : "이 날짜엔 측정 데이터가 없어요."}
+              <div className="text-center py-10 rounded-2xl bg-bg-soft">
+                <ChartIcon className="w-9 h-9 mx-auto mb-2 opacity-70" />
+                <p className="text-sm text-txt2">
+                  {logs.length === 0
+                    ? "아직 수집된 데이터가 없어요"
+                    : isToday
+                    ? "아직 오늘 데이터가 부족해요"
+                    : "이 날짜엔 측정 데이터가 없어요"}
+                </p>
               </div>
             )}
           </>

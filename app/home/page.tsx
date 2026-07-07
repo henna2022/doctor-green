@@ -184,7 +184,16 @@ export default function HomePage() {
         <section className="mb-7">
           <div className="flex items-center justify-between mb-3.5">
             <h2 className="text-lg font-extrabold">오늘의 리포트</h2>
-            {reportDevice && <span className="text-xs text-txt3">{reportDevice.name}</span>}
+            {reportDevice && (
+              <span className="flex items-center gap-1.5 text-xs text-txt3">
+                {reportDevice.name}
+                {isDemoDevice && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange/20 text-orange">
+                    체험용
+                  </span>
+                )}
+              </span>
+            )}
           </div>
 
           {reportLoading ? (

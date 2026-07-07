@@ -6,7 +6,7 @@ import Link from "next/link";
 import BottomNav from "@/components/BottomNav";
 import PageHeader from "@/components/PageHeader";
 import { getMyCrops, MyCrop } from "@/lib/crops";
-import { CameraIcon, UploadIcon, SearchIcon, LeafIcon, FlaskIcon } from "@/components/Icons";
+import { CameraIcon, UploadIcon, SearchIcon, LeafIcon, FlaskIcon, SproutIcon } from "@/components/Icons";
 import { resizeImageDataUrl, resizeImageFile, safeSetSessionStorage } from "./imageUtils";
 
 // HF Space 워밍 폴링 설정 — 3초 간격, 최대 10회
@@ -188,10 +188,14 @@ export default function DiagnosePage() {
           {cropsLoading ? (
             <p className="text-xs text-txt3">불러오는 중...</p>
           ) : myCrops.length === 0 ? (
-            <div className="p-3 rounded-2xl bg-bg-soft">
-              <p className="text-xs text-txt2 mb-2">아직 등록된 작물이 없어요</p>
-              <Link href="/crops" className="text-xs text-g1 font-bold">
-                작물 관리에서 추가하기 ›
+            <div className="p-4 rounded-2xl bg-bg-soft text-center">
+              <SproutIcon className="w-8 h-8 mx-auto mb-2 opacity-70" />
+              <p className="text-xs text-txt2 mb-3">작물을 먼저 등록해 주세요</p>
+              <Link
+                href="/crops"
+                className="inline-block px-4 py-2 rounded-xl bg-g1 text-white text-xs font-bold"
+              >
+                작물 등록하러 가기 ›
               </Link>
             </div>
           ) : (

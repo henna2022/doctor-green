@@ -113,7 +113,7 @@ export default function RealtimePage() {
                         <h3 className="text-base font-bold">{d.name}</h3>
                         {isDemo && (
                           <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-full bg-orange/20 text-orange">
-                            DEMO
+                            체험용
                           </span>
                         )}
                       </div>
@@ -138,7 +138,7 @@ export default function RealtimePage() {
         ) : (
           <div className="text-center py-20">
             <AntennaIcon className="w-10 h-10 mb-3 mx-auto opacity-70" />
-            <p className="text-sm text-txt2 mb-4">등록된 스마트팜이 없어요</p>
+            <p className="text-sm text-txt2 mb-4">등록된 기기가 없어요</p>
             <button
               onClick={() => setShowAdd(true)}
               className="inline-block px-6 py-3 rounded-2xl bg-g1 text-white font-bold text-sm"
