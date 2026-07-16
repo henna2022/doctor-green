@@ -157,8 +157,9 @@ export default function DiagnosePage() {
     }
     safeSetSessionStorage("diagnose_crop", selectedCrop?.crop_name || "미지정");
     safeSetSessionStorage("diagnose_crop_id", selectedCropId || "");
-    // 새 일반 진단 시작 — 이전 실시간 스냅샷의 센서값이 남아있지 않도록 제거
+    // 새 일반 진단 시작 — 이전 실시간 스냅샷의 센서값/디바이스ID가 남아있지 않도록 제거
     sessionStorage.removeItem("diagnose_sensors");
+    sessionStorage.removeItem("diagnose_device_id");
 
     router.push("/diagnose/result");
   };

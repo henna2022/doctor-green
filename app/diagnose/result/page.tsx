@@ -29,6 +29,8 @@ export default function DiagnoseResultPage() {
     sensors,
     ncpmsLoading,
     ncpmsSickKey,
+    aiVerdict,
+    aiVerdictStatus,
   } = useDiagnosis();
 
   const [saved, setSaved] = useState(false);
@@ -42,7 +44,16 @@ export default function DiagnoseResultPage() {
   // ━━━ 병해 미감지 / 판독불가 → 종합 건강 평가 화면 ━━━
   if (stage === "not_detected" || stage === "low_confidence") {
     const unclear = stage === "low_confidence";
-    return <NoDetectionScreen image={image} unclear={unclear} sensors={sensors} crop={crop} />;
+    return (
+      <NoDetectionScreen
+        image={image}
+        unclear={unclear}
+        sensors={sensors}
+        crop={crop}
+        aiVerdict={aiVerdict}
+        aiVerdictStatus={aiVerdictStatus}
+      />
+    );
   }
 
   // ━━━ 에러 화면 ━━━
@@ -83,7 +94,7 @@ export default function DiagnoseResultPage() {
       confidence: confidencePercent,
       severity: severityKey,
       imageUrl: image,
-      symptoms: [],
+      symptoms: aiVerdict?.reasons ?? [],
     });
     if (res.error) {
       alert("저장 실패: " + res.error);
@@ -131,9 +142,12 @@ export default function DiagnoseResultPage() {
           <HealthAssessment
             detected={true}
             diseaseName={result.disease_name}
+            confidence={result.confidence}
             severity={result.severity}
             sensors={sensors}
             cropName={crop}
+            aiVerdict={aiVerdict}
+            aiVerdictStatus={aiVerdictStatus}
           />
 
           {/* NCPMS 매칭 로딩 */}

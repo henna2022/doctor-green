@@ -1,7 +1,8 @@
 import Link from "next/link";
 import PageHeader from "@/components/PageHeader";
 import { SearchIcon, CameraIcon, WarningIcon } from "@/components/Icons";
-import { AnalyzingPhase } from "./lib";
+import { AnalyzingPhase, Verdict } from "./lib";
+import type { AiVerdictStatus } from "./useDiagnosis";
 import { HealthAssessment } from "./HealthAssessment";
 
 // ━━━ 분석 중 화면 ━━━
@@ -90,11 +91,15 @@ export function NoDetectionScreen({
   unclear,
   sensors,
   crop,
+  aiVerdict,
+  aiVerdictStatus,
 }: {
   image: string | null;
   unclear: boolean;
   sensors: { temp: number | null; hum: number | null; soil: number | null } | null;
   crop: string;
+  aiVerdict?: Verdict | null;
+  aiVerdictStatus?: AiVerdictStatus;
 }) {
   return (
     <div className="phone-frame overflow-y-auto">
@@ -116,7 +121,14 @@ export function NoDetectionScreen({
           </div>
         )}
 
-        <HealthAssessment detected={false} unclear={unclear} sensors={sensors} cropName={crop} />
+        <HealthAssessment
+          detected={false}
+          unclear={unclear}
+          sensors={sensors}
+          cropName={crop}
+          aiVerdict={aiVerdict}
+          aiVerdictStatus={aiVerdictStatus}
+        />
 
         <div className="flex flex-col gap-2.5 mt-2">
           <Link

@@ -36,6 +36,15 @@ export interface DiagnosisResult {
   all: Array<{ name: string; confidence: number }>;
 }
 
+// AI 종합 소견 (LLM verdict) — /api/diagnose/verdict 응답
+export interface Verdict {
+  verdict: "healthy" | "disease" | "overwatered" | "underwatered" | "env_stress" | "uncertain";
+  headline: string;
+  reasons: string[];
+  actions: string[];
+  confidence: "high" | "medium" | "low";
+}
+
 // NCPMS 외부 모바일 도감 URL
 export function ncpmsExternalUrl(sickKey: string): string {
   return `https://ncpms.rda.go.kr/mobile/MobileSicknsDtlR.ms?dtlKey=${sickKey}&totalSearchYn=Y`;
