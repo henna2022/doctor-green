@@ -13,13 +13,15 @@ import {
   CartesianGrid,
 } from "recharts";
 
-export function HistoryTab({ deviceId }: { deviceId: string }) {
-  // 이력 탭에서 보는 날짜 (기본: 오늘 0시)
-  const [selectedDay, setSelectedDay] = useState<Date>(() => {
-    const d = new Date();
-    d.setHours(0, 0, 0, 0);
-    return d;
-  });
+export function HistoryTab({
+  deviceId,
+  selectedDay,
+  onSelectDay,
+}: {
+  deviceId: string;
+  selectedDay: Date;
+  onSelectDay: (updater: Date | ((prev: Date) => Date)) => void;
+}) {
   const [logs, setLogs] = useState<SensorLog[]>([]);
 
   // 이력 탭이 열려있을 때, 선택한 날짜의 0~24시 추이 로드
@@ -59,7 +61,7 @@ export function HistoryTab({ deviceId }: { deviceId: string }) {
     ? "오늘"
     : selectedDay.toLocaleDateString("ko-KR", { month: "long", day: "numeric", weekday: "short" });
   const shiftDay = (delta: number) =>
-    setSelectedDay((prev) => {
+    onSelectDay((prev) => {
       const d = new Date(prev);
       d.setDate(d.getDate() + delta);
       d.setHours(0, 0, 0, 0);
@@ -85,7 +87,7 @@ export function HistoryTab({ deviceId }: { deviceId: string }) {
             if (!e.target.value) return;
             const d = new Date(e.target.value + "T00:00:00");
             d.setHours(0, 0, 0, 0);
-            setSelectedDay(d);
+            onSelectDay(d);
           }}
           className="flex-1 text-center text-sm font-bold border border-brd rounded-xl py-1.5 bg-bg-card outline-none"
         />

@@ -6,6 +6,12 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "port": 3000
+    },
+    {
+      "name": "edu",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "/Users/henna/Desktop/doctor-green-edu", "run", "dev"],
+      "port": 3000
     }
   ]
 }
