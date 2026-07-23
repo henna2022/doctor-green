@@ -49,6 +49,15 @@ training/.Rhistory
 training/__pycache__/
 training/dataset_sample/
 
+# 2단계 분류 파이프라인/데이터 준비 산출물(대용량) — 커밋 금지.
+# 스크립트 --out은 사용자 지정이 원칙이나, 레포 안 기본 경로로 쓸 때를 대비해 방어적으로 무시.
+training/crops/
+training/crops_*/
+training/runs/
+training/dataset/
+training/_dl/
+training/_accum/
+
 # manual backups (keep on disk, do not track)
 *.backup.docx
 *.backup.pptx
