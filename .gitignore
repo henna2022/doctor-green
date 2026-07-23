@@ -43,3 +43,12 @@ next-env.d.ts
 
 # python (스크립트/노트북용 가상환경)
 .venv/
+
+# R / python junk (training)
+training/.Rhistory
+training/__pycache__/
+training/dataset_sample/
+
+# manual backups (keep on disk, do not track)
+*.backup.docx
+*.backup.pptx
