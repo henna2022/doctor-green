@@ -37,6 +37,14 @@ import zipfile
 from collections import defaultdict
 from pathlib import Path
 
+# 윈도우에서 출력을 파일/파이프로 리다이렉트하면 인코딩이 cp949가 되어 일부 문자(— 등)에서
+# UnicodeEncodeError로 중단될 수 있다. 문자가 깨지더라도 실행은 계속되도록 완화한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 # AI Hub 서버 인증서 체인이 Python 기본 CA로 검증되지 않는 경우가 있어(자체서명 포함),
 # 검증을 완화한 SSL 컨텍스트를 준비해 둔다. 정상 검증을 먼저 시도하고 실패할 때만 사용한다.
 _SSL_UNVERIFIED = ssl._create_unverified_context()
@@ -506,15 +514,19 @@ def convert_class(root: Path, class_name: str):
                 continue
             if w <= 0 or h <= 0:
                 continue
-            cx = (x + w / 2) / W
-            cy = (y + h / 2) / H
-            bw = w / W
-            bh = h / H
-            # 0~1 밖/음수/0크기 스킵
-            if not (0.0 <= cx <= 1.0 and 0.0 <= cy <= 1.0):
+            # 이미지 경계로 클램프 후 퇴화 박스(1px 미만) 스킵
+            # (doctorgreen_aihub_data_prep.ipynb 의 변환 규칙과 동일 — 경계에 걸친 박스를
+            #  버리지 않고 잘라내며, 0~1 밖 좌표가 라벨에 남지 않게 한다)
+            x1 = max(0.0, x)
+            y1 = max(0.0, y)
+            x2 = min(W, x + w)
+            y2 = min(H, y + h)
+            if x2 - x1 < 1 or y2 - y1 < 1:
                 continue
-            if not (0.0 < bw <= 1.0 and 0.0 < bh <= 1.0):
-                continue
+            cx = (x1 + x2) / 2 / W
+            cy = (y1 + y2) / 2 / H
+            bw = (x2 - x1) / W
+            bh = (y2 - y1) / H
             lines.append(f"{cls_idx} {cx:.6f} {cy:.6f} {bw:.6f} {bh:.6f}")
 
         if not lines:
@@ -632,19 +644,21 @@ def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
         return "변환 결과 0장(이 클래스로 매핑된 이미지 없음)"
 
     # 8) per_class 무작위 샘플(부족분만 채우도록)
-    need = per_class - have
-    rng.shuffle(results)
-    sample = results[:need]
-    log(f"    누적 목표 {per_class}장 중 현재 {have}장 -> 이번에 {len(sample)}장 추가")
-
-    # 9) ACCUM_DIR/{클래스}/{images,labels}로 복사
+    #    이미 _accum 에 있는 파일명(stem)은 제외 — 중단 후 재실행 시 같은 이미지가
+    #    "_1" 접미사로 중복 저장되면 그룹 키가 달라져 train/val/test 분할 누수가 생긴다.
     acc_img = ACCUM_DIR / class_name / "images"
     acc_lbl = ACCUM_DIR / class_name / "labels"
     acc_img.mkdir(parents=True, exist_ok=True)
     acc_lbl.mkdir(parents=True, exist_ok=True)
-
-    copied = 0
     used_stems = set(p.stem for p in acc_img.iterdir() if p.is_file())
+
+    need = per_class - have
+    rng.shuffle(results)
+    sample = [r for r in results if r[0].stem not in used_stems][:need]
+    log(f"    누적 목표 {per_class}장 중 현재 {have}장 -> 이번에 {len(sample)}장 추가")
+
+    # 9) ACCUM_DIR/{클래스}/{images,labels}로 복사
+    copied = 0
     for img_path, lines in sample:
         stem = img_path.stem
         k = 1
@@ -762,18 +776,19 @@ def split_class_pairs(class_name: str, pairs: list, rng: random.Random, split: t
 def write_data_yaml(out_dir: Path):
     """
     학습 노트북(doctorgreen_yolo_map_boost.ipynb)이 그대로 읽는 형식:
-        path: <절대경로>
         train: images/train
         val: images/val
         test: images/test
         names:
           0: 정상
           ...
+    path: 는 일부러 쓰지 않는다 — 윈도우 절대경로(C:\\...)를 적어 두면 zip을 Colab(리눅스)로
+    옮겼을 때 ultralytics가 그 경로를 찾지 못해 실패한다. path 가 없으면 ultralytics는
+    data.yaml 이 있는 폴더를 데이터셋 루트로 쓰므로(공식 폴백) 어디로 옮겨도 그대로 동작한다.
     (표준 라이브러리만 쓰므로 yaml을 직접 문자열로 생성)
     """
     yaml_path = out_dir / "data.yaml"
     lines = []
-    lines.append(f"path: {out_dir.resolve()}")
     lines.append("train: images/train")
     lines.append("val: images/val")
     lines.append("test: images/test")

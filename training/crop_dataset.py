@@ -40,6 +40,14 @@ from pathlib import Path
 
 from PIL import Image
 
+# 윈도우에서 출력을 파일/파이프로 리다이렉트하면 인코딩이 cp949가 되어 일부 문자(— 등)에서
+# UnicodeEncodeError로 중단될 수 있다. 문자가 깨지더라도 실행은 계속되도록 완화한다.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(errors="replace")
+    except Exception:
+        pass
+
 IMG_SUFFIXES = {".jpg", ".jpeg", ".png"}
 
 
