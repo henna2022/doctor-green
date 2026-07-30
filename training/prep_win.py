@@ -12,18 +12,26 @@
     -> Colab 학습 노트북(doctorgreen_yolo_map_boost.ipynb)에서 그대로 사용.
 
 사용법(간단):
-    python prep_win.py                # 5개 클래스 전부, 작은 것부터 자동 다운로드+변환+분할
-    python prep_win.py --classes 황화,역병      # 특정 클래스만
-    python prep_win.py --per-class 500          # 클래스당 장수 변경(기본 1000)
-    python prep_win.py --only-build             # 다운로드 없이 이미 모아둔 _accum 으로 최종 분할만
+    python prep_win.py --dry-run                # 실제 다운로드 없이 환경/키 목록/디스크/경로만 점검
+    python prep_win.py --peek                    # 라벨 파일만 받아 JSON 구조·API 키를 먼저 확인(강력 권장)
+    python prep_win.py                            # 5개 클래스 전부, 작은 것부터 자동 다운로드+변환+분할
+    python prep_win.py --classes 황화,역병        # 특정 클래스만
+    python prep_win.py --per-class 500            # 클래스당 장수 변경(기본 1000)
+    python prep_win.py --only-build               # 다운로드 없이 이미 모아둔 _accum 으로 최종 분할만
+
+권장 순서: 처음 실행하는 PC/키라면 반드시 ① --dry-run -> ② --peek -> ③ 본 실행 순으로 진행하세요.
+'정상' 클래스처럼 병징 bbox가 없는 이미지는 기본적으로 빈 라벨(배경) 이미지로 포함됩니다
+(--no-allow-background 로 과거 동작으로 되돌릴 수 있습니다).
 
 표준 라이브러리만 사용 — pip 설치 불필요(PIL 불필요; 이미지 크기는 JSON에서 읽음).
 """
 
 import argparse
 import getpass
+import http.client
 import json
 import os
+import platform
 import random
 import re
 import shutil
@@ -45,10 +53,12 @@ for _stream in (sys.stdout, sys.stderr):
     except Exception:
         pass
 
-# AI Hub 서버 인증서 체인이 Python 기본 CA로 검증되지 않는 경우가 있어(자체서명 포함),
-# 검증을 완화한 SSL 컨텍스트를 준비해 둔다. 정상 검증을 먼저 시도하고 실패할 때만 사용한다.
+# AI Hub 서버 인증서 자체는 정상 상용 인증서다(체인: *.aihub.or.kr <- Sectigo <- USERTrust,
+# 확인 완료). 검증 실패는 대개 로컬 파이썬의 CA 저장소가 비어있거나 낡은 문제이며, 그렇다고
+# 자동으로 검증을 꺼서는 안 된다 — 실제로 중간자가 있는 경우 API 키가 그대로 노출된다.
+# 검증 완화는 사용자에게 명시적으로 확인받은 뒤에만 사용한다(_confirm_ssl_fallback 참고).
 _SSL_UNVERIFIED = ssl._create_unverified_context()
-_ssl_warned = False
+_ssl_fallback_confirmed = None  # None=미확인, True/False=사용자 응답 캐시(중복 질문 방지)
 
 # ============================================================================
 #  CONFIG — 여기 값들은 실제 데이터로 검증된 값입니다. 함부로 바꾸지 마세요.
@@ -57,8 +67,12 @@ BASE_DIR = Path(__file__).resolve().parent
 
 DATASET_KEY = "71451"
 DOWN_BASE = "https://api.aihub.or.kr/down/0.6"
+INFO_URL = f"https://api.aihub.or.kr/info/{DATASET_KEY}.do"  # API 키 불필요, filekey 목록 조회용
 
 # 클래스별 원천(ts) / 라벨(tl) filekey
+# AI Hub가 파일을 재편하면 이 값이 바뀔 수 있습니다. 실행 시 preflight_check_filekeys()가
+# https://api.aihub.or.kr/info/71451.do 의 현재 목록과 자동 대조해 다르면 경고합니다.
+# 값이 실제로 바뀌었다면 위 주소를 브라우저로 열어 "파일명 | 용량 | filekey" 표를 보고 갱신하세요.
 FILE_KEYS_BY_CLASS = {
     "정상":    {"ts": "475380", "tl": "475385"},
     "역병":    {"ts": "475381", "tl": "475386"},
@@ -73,14 +87,25 @@ CLASS_NAMES = ["정상", "역병", "시들음병", "잎끝마름", "황화"]
 # 다운로드 순서 = 작은 클래스부터(중간에 멈춰도 작은 것부터 확보). 인덱스는 CLASS_NAMES 위치로 부여.
 DOWNLOAD_ORDER = ["황화", "잎끝마름", "역병", "시들음병", "정상"]
 
-# 클래스별 대략적인 원천 용량(GB) — 다운로드 전 디스크 여유 경고에만 사용(정확치 아님).
+# 클래스별 대략적인 원천 용량(GB) — AI Hub info API 실측치(2026-07-30 확인).
+# 다운로드 전 디스크 여유 경고에만 사용(정확치 아님 — 디스크 판정은 이 값에 여유배수를 곱해 씀).
 APPROX_GB_BY_CLASS = {
-    "황화": 20, "잎끝마름": 25, "역병": 30, "시들음병": 43, "정상": 76,
+    "황화": 20, "잎끝마름": 25, "역병": 26, "시들음병": 47, "정상": 76,
 }
+
+# 디스크 여유 판정 배수. 실제 피크는 tar(원천) + 해제된 zip이 동시에 존재하는 구간(약 2배)과,
+# zip 해제 직후 zip+이미지가 동시에 존재하는 구간(약 2배)이라 AI Hub 공식 안내(2~3배)를 따른다.
+DISK_MARGIN_FACTOR = 2.5
 
 PER_CLASS = 1000
 SPLIT = (0.8, 0.1, 0.1)
 SEED = 42
+
+# 병징 bbox가 하나도 없는 이미지(예: '정상' 클래스)를 빈 라벨(배경) 이미지로 포함할지 여부.
+# 끄면 그런 이미지는 전부 제외되는데, '정상' 클래스처럼 원래 bbox가 없는 데이터라면
+# 대용량을 다 받고도 결과가 0장이 되어 배포 모델의 인덱스 0(정상)이 통째로 빠질 수 있다.
+# --no-allow-background 로 실행 시 끌 수 있다(과거 동작과 동일).
+ALLOW_BACKGROUND_DEFAULT = True
 
 # 개체ID(누수 방지 그룹) 정규식. 파일명(확장자 제외)에서 개체 식별자를 뽑아 같은 개체가
 # 여러 split(train/val/test)에 걸치지 않게 한다. AI Hub 딸기 데이터 파일명 규칙:
@@ -93,11 +118,20 @@ WORK_DIR = BASE_DIR / "_dl"       # 다운로드/해제 임시 작업폴더(클�
 ACCUM_DIR = BASE_DIR / "_accum"   # 클래스별 최종 샘플(이미지+라벨) 누적 보관 -> 재실행시 보존
 OUT_DIR = BASE_DIR / "dataset"    # 최종 8:1:1 분할 결과 + data.yaml
 
-DOWNLOAD_TIMEOUT = 60             # 소켓 타임아웃(초)
-MAX_RETRY = 2                     # 다운로드 실패 시 추가 재시도 횟수
-MIN_TAR_BYTES = 10 * 1024        # 이보다 작으면 에러 본문일 가능성 -> 텍스트로 검사
+# 요청(응답 헤더 수신 포함) 타임아웃(초). AI Hub는 대용량 아카이브를 서버에서 준비하는 동안
+# 첫 바이트를 수 분간 안 보내는 경우가 있어 넉넉히 잡는다(60초는 너무 짧아 시작도 못 하고 실패했다).
+DOWNLOAD_TIMEOUT = 600
+MAX_RETRY = 5                      # 다운로드 실패 시 추가 재시도 횟수(총 시도 = 1 + MAX_RETRY)
+RETRY_WAITS = [5, 15, 45, 120, 300]  # 재시도 대기(초), 지수 백오프. 인증/승인 오류는 재시도하지 않음.
+MIN_TAR_BYTES = 10 * 1024          # 이보다 작으면 에러 본문일 가능성 -> 텍스트로 검사
+
+# AI Hub 다운로드 실패 응답 본문에서 "재시도해도 소용없는" 오류를 가리키는 문구.
+# 이 문구가 보이면 즉시 중단하고 재시도하지 않는다(재시도해도 결과가 같다).
+AUTH_FAIL_MARKERS = ("인증실패", "권한", "승인", "신청", "해외", "제한", "로그인")
 
 IMG_SUFFIXES = {".jpg", ".jpeg"}  # 규칙: *.jpg(대소문자 무시). jpeg도 관대하게 포함.
+
+MIN_PYTHON = (3, 8)
 
 
 # ============================================================================
@@ -115,22 +149,37 @@ def human_bytes(n):
     return f"{n:.1f}TB"
 
 
-def fix_name(nm):
-    """zip 항목명이 cp437로 저장돼 한글이 깨진 경우 복원."""
-    try:
-        raw = nm.encode("cp437")
-    except Exception:
-        return nm
-    for enc in ("cp949", "euc-kr", "utf-8"):
-        try:
-            return raw.decode(enc)
-        except Exception:
-            continue
-    return nm
+def check_python_version() -> bool:
+    if sys.version_info < MIN_PYTHON:
+        log(f"[오류] 파이썬 {MIN_PYTHON[0]}.{MIN_PYTHON[1]} 이상이 필요합니다"
+            f"(현재 {platform.python_version()}).")
+        log("       https://www.python.org/downloads/windows/ 에서 최신 버전을 설치하세요"
+            "('Add python.exe to PATH' 체크 필수).")
+        return False
+    log(f"  [확인] 파이썬 버전: {platform.python_version()} (요구 {MIN_PYTHON[0]}.{MIN_PYTHON[1]}+)")
+    return True
+
+
+_WIN_RESERVED = {"CON", "PRN", "AUX", "NUL",
+                 *(f"COM{i}" for i in range(1, 10)), *(f"LPT{i}" for i in range(1, 10))}
+_WIN_BAD_CHARS = re.compile(r'[<>:"|?*\x00-\x1f]')
+
+
+def _sanitize_part(part: str) -> str:
+    """윈도우에서 만들 수 없는 파일명(금지문자 `<>:"|?*`, 끝 공백/점, 예약어)을 안전하게 치환.
+    safe_join이 경로의 각 조각에 적용해 압축 해제 중 OSError로 전체가 중단되는 것을 막는다."""
+    part = _WIN_BAD_CHARS.sub("_", part)
+    part = part.rstrip(" .")
+    if not part:
+        part = "_"
+    stem = part.split(".")[0].upper()
+    if stem in _WIN_RESERVED:
+        part = "_" + part
+    return part
 
 
 def safe_join(base: Path, *paths) -> Path:
-    """경로 이탈(zip-slip / path traversal) 방지: 결과가 base 밖이면 예외."""
+    """경로 이탈(zip-slip / path traversal) 방지 + 윈도우 금지 파일명 정규화."""
     base = base.resolve()
     target = base
     for p in paths:
@@ -141,6 +190,7 @@ def safe_join(base: Path, *paths) -> Path:
                 continue
             if part == "..":
                 raise ValueError(f"경로 이탈 시도 차단: {p}")
+            part = _sanitize_part(part)
             target = target / part
     target = (base / target.relative_to(base)) if target != base else base
     resolved = target.resolve()
@@ -160,7 +210,81 @@ def disk_free_gb(path: Path) -> float:
 def print_disk(path: Path, tag=""):
     free = disk_free_gb(path)
     if free >= 0:
-        log(f"  [디스크] 여유 공간: {free:.1f} GB {tag}")
+        log(f"  [디스크] 여유 공간: {free:.1f} GB {tag} ({path})")
+
+
+_DANGEROUS_DIR_NAMES = {"desktop", "documents", "downloads", "바탕화면", "문서", "다운로드"}
+
+
+def is_dangerous_delete_target(path: Path) -> bool:
+    """드라이브 루트나 사용자 홈/문서/바탕화면 자체처럼 절대 통째로 지우면 안 되는 경로인지 판별.
+    --work-dir/--out-dir/--accum-dir 오타(예: D:\\ 또는 Documents)로 인한 대량 삭제 사고 방지."""
+    try:
+        rp = path.resolve()
+    except Exception:
+        rp = path
+    if str(rp) == str(rp.anchor):  # 드라이브 루트(C:\, /) 자체
+        return True
+    try:
+        if rp == Path.home().resolve():
+            return True
+    except Exception:
+        pass
+    if rp.name.lower() in _DANGEROUS_DIR_NAMES:
+        return True
+    return False
+
+
+def safe_rmtree(path: Path, label: str) -> bool:
+    """작업폴더/결과폴더 삭제 전 위험 경로 가드. 문제 있으면 지우지 않고 False를 반환한다."""
+    if not path.exists():
+        return True
+    if is_dangerous_delete_target(path):
+        log(f"[오류] {label} 경로가 삭제하기에 위험해 보입니다: {path}")
+        log("       드라이브 루트나 사용자 홈/문서/바탕화면 자체는 지우지 않습니다.")
+        log("       --work-dir/--out-dir/--accum-dir 로 전용 하위 폴더(예: C:\\dg\\work)를 지정하세요.")
+        return False
+    shutil.rmtree(path, ignore_errors=True)
+    return True
+
+
+def warn_path_issues(label: str, path: Path):
+    """OneDrive 동기화 폴더 / 너무 긴 경로에 대해 사전 경고(윈도우 MAX_PATH 260자 대응)."""
+    s = str(path)
+    if "onedrive" in s.lower():
+        log(f"  [경고] {label} 경로가 OneDrive 동기화 폴더 안에 있습니다: {path}")
+        log("         대용량 임시 파일이 자동 업로드되어 느려지거나 저장공간을 채울 수 있습니다.")
+        log("         가능하면 'C:\\dg' 처럼 동기화되지 않는 짧은 경로로 --work-dir/--out-dir/--accum-dir 를 옮기세요.")
+    if len(s) > 100:
+        log(f"  [경고] {label} 경로가 깁니다({len(s)}자): {path}")
+        log("         윈도우 기본 경로 길이 제한(260자)에 걸릴 수 있습니다. 짧은 경로를 쓰거나,")
+        log("         관리자 권한 cmd에서 아래를 실행 후 재부팅해 '긴 경로 사용'을 켜세요:")
+        log(r"         reg add HKLM\SYSTEM\CurrentControlSet\Control\FileSystem /v LongPathsEnabled /t REG_DWORD /d 1")
+
+
+def fix_name(info) -> str:
+    """zip 항목명 한글 복원.
+    info가 zipfile.ZipInfo면 UTF-8 플래그(0x800)부터 확인한다 — 플래그가 있으면 zipfile이
+    이미 정확히 UTF-8로 디코딩해 두었으므로 손대지 않는다(잘못 건드리면 오히려 깨진다).
+    플래그가 없으면 zipfile이 cp437로 잘못 디코딩한 것을 되돌려 utf-8 -> cp949 -> euc-kr
+    순으로 재해석한다(UTF-8을 먼저 시도 — 디코딩 검증이 엄격해 성공하면 오탐이 거의 없다).
+    """
+    if isinstance(info, zipfile.ZipInfo):
+        if info.flag_bits & 0x800:
+            return info.filename
+        nm = info.filename
+    else:
+        nm = info
+    try:
+        raw = nm.encode("cp437")
+    except Exception:
+        return nm
+    for enc in ("utf-8", "cp949", "euc-kr"):
+        try:
+            return raw.decode(enc)
+        except Exception:
+            continue
+    return nm
 
 
 # ============================================================================
@@ -171,22 +295,12 @@ def build_download_url(filekeys: str) -> str:
     return f"{DOWN_BASE}/{DATASET_KEY}.do?fileSn={filekeys}"
 
 
-ERROR_HINTS = [
-    "해외에서",          # "AI 허브는 해외에서의 데이터 다운로드를 제한..."
-    "제한",
-    "승인",              # "신청 및 승인 후 이용 가능"
-    "신청",
-    "Download failed",
-    "HTTP status",
-    "권한",
-    "로그인",
-]
-
-
 def looks_like_error_body(path: Path) -> str:
     """
     받은 파일이 tar 바이너리가 아니라 한국어/영문 에러 텍스트면 그 내용을 돌려준다(성공이면 "").
     판별: tar로 열리면 성공. 안 열리고 크기가 아주 작으면(<MIN_TAR_BYTES) 텍스트로 읽어 에러로 처리.
+    (본선은 download_to의 HTTPError 처리에서 이미 잡히지만, 200으로 응답하며 본문에 에러
+    텍스트를 실어 보내는 경우에 대한 2차 방어선.)
     """
     try:
         size = path.stat().st_size
@@ -226,45 +340,85 @@ def looks_like_error_body(path: Path) -> str:
     return f"받은 파일이 tar로 열리지 않습니다(손상 가능, {human_bytes(size)})."
 
 
+def _confirm_ssl_fallback() -> bool:
+    """SSL 검증 실패 시 사용자에게 명시적으로 확인받는다(캐시해 재질문하지 않음).
+    자동으로 검증을 끄면, 실제로 중간자가 있는 상황에서 API 키가 그대로 노출될 수 있다."""
+    global _ssl_fallback_confirmed
+    if _ssl_fallback_confirmed is not None:
+        return _ssl_fallback_confirmed
+    log("  [안내] 서버 인증서를 검증할 수 없습니다. AI Hub 서버 인증서 자체는 정상이며,")
+    log("         대개 이 PC의 파이썬 CA 인증서 저장소가 비어있거나 낡아서입니다.")
+    log("         (윈도우: 파이썬을 최신으로 재설치하면 보통 해결됩니다.")
+    log("          맥: 'Install Certificates.command' 실행)")
+    try:
+        ans = input("  검증 없이 계속하면 API 키가 노출될 위험이 있습니다. 계속할까요? (y/N): ").strip().lower()
+    except Exception:
+        ans = ""
+    _ssl_fallback_confirmed = (ans == "y")
+    if not _ssl_fallback_confirmed:
+        log("  [중단] 검증 완화를 진행하지 않습니다.")
+    return _ssl_fallback_confirmed
+
+
 def download_to(filekeys: str, dst: Path, apikey: str) -> None:
     """
     filekeys(콤마구분)에 해당하는 파일을 스트리밍으로 dst(download.tar)에 저장.
-    성공/실패 판별은 저장 후 looks_like_error_body()로 호출측에서 수행.
-    네트워크 예외 시 재시도.
+    dst에 이미 부분 다운로드가 남아 있으면 HTTP Range로 이어받기를 시도한다(서버가 Range를
+    지원하지 않으면 200 전체 응답으로 자동 폴백). 수신 바이트 수를 Content-Length와 대조해
+    중간에 끊긴 다운로드를 '완료'로 오판하지 않는다. 인증/승인 오류(본문에 AUTH_FAIL_MARKERS
+    문구 포함)는 재시도해도 결과가 같으므로 즉시 중단한다.
     """
     url = build_download_url(filekeys)
     last_err = None
     for attempt in range(1, MAX_RETRY + 2):  # 최초 1회 + 재시도 MAX_RETRY회
         try:
-            req = urllib.request.Request(url, method="GET")
-            req.add_header("apikey", apikey)  # 인증 헤더 (URL/로그에 키 노출 금지)
-            req.add_header("User-Agent", "doctorgreen-prep/1.0 (python-urllib)")
+            resume_from = dst.stat().st_size if dst.exists() else 0
+        except Exception:
+            resume_from = 0
 
-            if dst.exists():
-                dst.unlink()
+        req = urllib.request.Request(url, method="GET")
+        req.add_header("apikey", apikey)  # 인증 헤더 (URL/로그에 키 노출 금지)
+        req.add_header("User-Agent", "doctorgreen-prep/1.0 (python-urllib)")
+        if resume_from > 0:
+            req.add_header("Range", f"bytes={resume_from}-")
 
+        if attempt == 1:
+            log(f"  [다운로드] 준비 중 ... 서버가 대용량 파일을 준비하는 동안 응답이 없을 수 있습니다"
+                f"(최대 {DOWNLOAD_TIMEOUT // 60}분 대기).")
+        if resume_from > 0:
+            log(f"  [다운로드] 시도 {attempt}/{MAX_RETRY + 1} ... 이어받기 시도"
+                f"(기존 {human_bytes(resume_from)}부터)")
+        else:
             log(f"  [다운로드] 시도 {attempt}/{MAX_RETRY + 1} ... (대용량일 수 있습니다)")
+
+        try:
             try:
                 resp = urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT)
             except urllib.error.URLError as e:
-                # SSL 인증서 검증 실패 → 검증 완화 컨텍스트로 재시도 (curl/aihubshell은 통과하지만 Python 기본 CA로는 막히는 이슈)
+                # SSL 인증서 검증 실패 → 사용자 확인 후에만 검증 완화 컨텍스트로 재시도
                 reason = getattr(e, "reason", e)
                 if isinstance(reason, ssl.SSLError) or "CERTIFICATE_VERIFY_FAILED" in str(reason):
-                    global _ssl_warned
-                    if not _ssl_warned:
-                        log("  [안내] SSL 인증서 검증에 실패해 검증을 완화하고 진행합니다(AI Hub 서버 인증서 이슈, 연결은 여전히 암호화됨).")
-                        _ssl_warned = True
+                    if not _confirm_ssl_fallback():
+                        raise RuntimeError("사용자가 SSL 검증 완화를 거부해 중단했습니다.")
                     resp = urllib.request.urlopen(req, timeout=DOWNLOAD_TIMEOUT, context=_SSL_UNVERIFIED)
                 else:
                     raise
+
             with resp:
-                total = resp.headers.get("Content-Length")
-                total = int(total) if (total and total.isdigit()) else 0
-                read = 0
+                status = getattr(resp, "status", 200)
+                resuming = (status == 206 and resume_from > 0)
+                mode = "ab" if resuming else "wb"
+                base_read = resume_from if resuming else 0
+
+                total_hdr = resp.headers.get("Content-Length")
+                total_hdr = int(total_hdr) if (total_hdr and total_hdr.isdigit()) else 0
+                total = (base_read + total_hdr) if total_hdr else 0
+
+                read = base_read
                 last_pct = -5
                 last_time = time.time()
                 chunk = 1024 * 1024  # 1MB
-                with open(dst, "wb") as f:
+                with open(dst, mode) as f:
                     while True:
                         buf = resp.read(chunk)
                         if not buf:
@@ -280,41 +434,106 @@ def download_to(filekeys: str, dst: Path, apikey: str) -> None:
                         elif now - last_time >= 5:
                             log(f"    받는 중 ... {human_bytes(read)}")
                             last_time = now
+
+                # 수신 바이트 수를 Content-Length와 대조 — 서버가 중간에 연결을 끊으면
+                # resp.read()가 조용히 b''를 반환할 수 있어 길이 검증 없이는 '완료'로 오판한다.
+                if total and read != total:
+                    raise OSError(f"전송이 중간에 끊겼습니다({read}/{total} 바이트)")
+
             log(f"  [다운로드] 완료: {human_bytes(dst.stat().st_size)}")
             return
         except urllib.error.HTTPError as e:
-            last_err = f"HTTP {e.code} {e.reason}"
-            log(f"  [경고] 다운로드 HTTP 오류: {last_err}")
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+            body = ""
+            try:
+                body = e.read().decode("utf-8", "replace").strip()
+            except Exception:
+                pass
+            last_err = f"HTTP {e.code} {(e.reason or '').strip()} {body}".strip()
+            log(f"  [경고] 다운로드 HTTP 오류: HTTP {e.code} — {body or '(본문 없음)'}")
+            if body and any(m in body for m in AUTH_FAIL_MARKERS):
+                raise RuntimeError(f"인증/승인 오류로 판단되어 재시도하지 않습니다: {body}")
+        except (urllib.error.URLError, TimeoutError, OSError, http.client.HTTPException) as e:
             last_err = str(e)
             log(f"  [경고] 다운로드 네트워크 오류: {last_err}")
         if attempt <= MAX_RETRY:
-            wait = 5 * attempt
+            wait = RETRY_WAITS[min(attempt - 1, len(RETRY_WAITS) - 1)]
             log(f"  {wait}초 후 재시도합니다 ...")
             time.sleep(wait)
     raise RuntimeError(f"다운로드 실패(재시도 소진): {last_err}")
 
 
 # ============================================================================
+#  사전 점검 (API 키 불필요) — filekey 목록 대조
+# ============================================================================
+def fetch_info_body() -> str:
+    """파일 목록 조회 API(API 키 불필요). 정상 응답도 HTTP 502로 오는 경우가 있어
+    상태코드를 보지 않고 본문만 읽는다."""
+    req = urllib.request.Request(INFO_URL, method="GET")
+    req.add_header("User-Agent", "doctorgreen-prep/1.0 (python-urllib)")
+    try:
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            return resp.read().decode("utf-8", "replace")
+    except urllib.error.HTTPError as e:
+        try:
+            return e.read().decode("utf-8", "replace")
+        except Exception:
+            return ""
+    except Exception as e:
+        log(f"  [안내] 파일 목록 조회 실패(네트워크 문제일 수 있음, 계속 진행): {e}")
+        return ""
+
+
+def preflight_check_filekeys():
+    """다운로드 시작 전, AI Hub가 공개하는 파일 목록에서 filekey를 확인해
+    CONFIG의 FILE_KEYS_BY_CLASS 값과 다르면 경고한다(치명적이지 않으면 계속 진행).
+    이 엔드포인트는 API 키가 필요 없다 — API 키 자체의 유효성/승인 상태는 이 호출로는
+    확인할 수 없으므로(AI Hub의 별도 키검증 엔드포인트는 404로 사용 불가 확인됨),
+    큰 클래스를 받기 전에 --peek 로 실제 인증 다운로드를 먼저 해볼 것을 권장한다.
+    """
+    log("\n[사전 점검] AI Hub 파일 목록 조회 중(API 키 불필요) ...")
+    body = fetch_info_body()
+    if not body:
+        log("  [안내] 파일 목록을 가져오지 못해 filekey 대조를 건너뜁니다.")
+        return
+    all_keys = {k for pair in FILE_KEYS_BY_CLASS.values() for k in pair.values()}
+    missing = sorted(k for k in all_keys if k not in body)
+    if missing:
+        log(f"  [경고] 스크립트에 저장된 filekey 중 {len(missing)}개가 현재 AI Hub 목록에서 보이지 않습니다: {missing}")
+        log(f"         {INFO_URL} 를 브라우저로 열어 실제 filekey를 확인하고 FILE_KEYS_BY_CLASS를 갱신하세요.")
+    else:
+        log("  [확인] filekey가 현재 AI Hub 목록과 일치합니다.")
+
+
+# ============================================================================
 #  후처리: tar 해제 -> part 병합 -> zip 해제  (aihubshell 후처리 순서 재현)
 # ============================================================================
-def extract_tar(tar_path: Path, dest: Path) -> None:
-    """download.tar를 dest에 안전하게 해제(경로 이탈 방지)."""
+def extract_tar(tar_path: Path, dest: Path) -> int:
+    """download.tar를 dest에 안전하게 해제(경로 이탈 방지).
+    항목 하나가 OSError(경로 260자 초과, 금지문자 등)를 내도 전체가 중단되지 않도록
+    항목 단위로 예외를 잡아 계속 진행한다. 반환: 실패한 항목 수."""
     dest.mkdir(parents=True, exist_ok=True)
+    fail = 0
     with tarfile.open(str(tar_path), "r:*") as tf:
         for member in tf.getmembers():
-            if member.isdev() or member.islnk() or member.issym():
-                continue  # 특수/링크 항목 무시(보안)
-            target = safe_join(dest, member.name)  # 이탈 검사
-            if member.isdir():
-                target.mkdir(parents=True, exist_ok=True)
-                continue
-            target.parent.mkdir(parents=True, exist_ok=True)
-            src = tf.extractfile(member)
-            if src is None:
-                continue
-            with src, open(target, "wb") as out:
-                shutil.copyfileobj(src, out)
+            try:
+                if member.isdev() or member.islnk() or member.issym():
+                    continue  # 특수/링크 항목 무시(보안)
+                target = safe_join(dest, member.name)  # 이탈 검사 + 윈도우 금지문자 정규화
+                if member.isdir():
+                    target.mkdir(parents=True, exist_ok=True)
+                    continue
+                target.parent.mkdir(parents=True, exist_ok=True)
+                src = tf.extractfile(member)
+                if src is None:
+                    continue
+                with src, open(target, "wb") as out:
+                    shutil.copyfileobj(src, out)
+            except (OSError, ValueError) as e:
+                fail += 1
+                log(f"    [경고] tar 항목 해제 실패({member.name}): {e}")
+    if fail:
+        log(f"    [해제 요약] tar 항목 실패 {fail}건(계속 진행)")
+    return fail
 
 
 _PART_RE = re.compile(r"^(?P<prefix>.+)\.part(?P<num>\d+)$", re.IGNORECASE)
@@ -356,62 +575,81 @@ def merge_parts(root: Path) -> int:
     return made
 
 
-def extract_one_zip(zip_path: Path) -> int:
+def extract_one_zip(zip_path: Path):
     """
     zip_path를 같은 폴더에 해제(한글 파일명 fix_name 복원, 경로 이탈 방지).
-    성공 시 원본 zip 삭제. 반환: 해제한 항목 수.
+    항목 단위로 예외를 잡아 일부가 실패해도 계속 진행한다. 실패가 하나라도 있으면
+    원본 zip을 지우지 않는다(재시도하거나 사용자가 확인할 수 있게 — 지워버리면 미해제
+    데이터가 그대로 유실된다). 반환: (해제한 항목 수, 실패한 항목 수).
     """
     dest = zip_path.parent
     count = 0
+    fail = 0
     try:
         with zipfile.ZipFile(str(zip_path)) as zf:
             for info in zf.infolist():
-                name = fix_name(info.filename)
-                if name.endswith("/") or info.is_dir():
-                    try:
-                        safe_join(dest, name).mkdir(parents=True, exist_ok=True)
-                    except ValueError as e:
-                        log(f"    [경고] {e}")
-                    continue
                 try:
+                    name = fix_name(info)
+                    if name.endswith("/") or info.is_dir():
+                        safe_join(dest, name).mkdir(parents=True, exist_ok=True)
+                        continue
                     target = safe_join(dest, name)
-                except ValueError as e:
-                    log(f"    [경고] {e}")
-                    continue
-                target.parent.mkdir(parents=True, exist_ok=True)
-                with zf.open(info) as src, open(target, "wb") as out:
-                    shutil.copyfileobj(src, out)
-                count += 1
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    with zf.open(info) as src, open(target, "wb") as out:
+                        shutil.copyfileobj(src, out)
+                    count += 1
+                except (OSError, ValueError) as e:
+                    fail += 1
+                    log(f"    [경고] zip 항목 해제 실패({info.filename}): {e}")
     except zipfile.BadZipFile as e:
         log(f"    [경고] 손상된 zip 건너뜀({zip_path.name}): {e}")
-        return 0
-    try:
-        zip_path.unlink()
-    except Exception:
-        pass
-    return count
+        return 0, 1
+
+    if fail == 0:
+        try:
+            zip_path.unlink()
+        except Exception:
+            pass
+    else:
+        log(f"    [경고] {zip_path.name}: 항목 {fail}건 실패 — 원본 zip을 지우지 않았습니다.")
+    return count, fail
 
 
-def unzip_recursive(root: Path, max_rounds: int = 3) -> None:
-    """중첩 zip 대비: 새 zip이 안 나올 때까지 최대 max_rounds회 반복 해제."""
+def unzip_recursive(root: Path, max_rounds: int = 3) -> int:
+    """중첩 zip 대비: 새 zip이 안 나올 때까지 최대 max_rounds회 반복 해제.
+    반환: 마지막까지 남아 있는(해제 실패로 삭제되지 않은) zip 개수 — 0이면 전부 해제 성공."""
+    remaining = 0
     for rnd in range(1, max_rounds + 1):
         zips = [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".zip"]
         if not zips:
+            remaining = 0
             break
         log(f"    [zip 해제] {rnd}회차: {len(zips)}개")
         for zp in zips:
-            n = extract_one_zip(zp)
+            n, fail = extract_one_zip(zp)
             if n:
-                log(f"      {zp.name} -> {n}개 항목")
+                log(f"      {zp.name} -> {n}개 항목" + (f"(실패 {fail}건)" if fail else ""))
+        remaining = sum(1 for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".zip")
+    return remaining
 
 
-def cleanup_archives(root: Path) -> None:
-    """해제 끝난 아카이브/part 잔여물 삭제로 디스크 회수."""
+def cleanup_archives(root: Path, zip_remaining: int) -> None:
+    """해제 끝난 아카이브/part 잔여물 삭제로 디스크 회수.
+    zip_remaining > 0이면(일부 zip이 해제 실패로 남아있으면) zip은 지우지 않는다
+    (미해제 데이터를 통째로 잃는 사고 방지) — tar/part만 정리한다."""
+    if zip_remaining > 0:
+        log(f"    [주의] {zip_remaining}개 zip이 끝내 풀리지 않았습니다 — 삭제하지 않았습니다."
+            " 디스크가 부족하면 수동으로 확인하세요.")
     for p in root.rglob("*"):
         if not p.is_file():
             continue
         low = p.suffix.lower()
-        if low in (".tar", ".zip") or _PART_RE.match(p.name):
+        if low == ".tar" or _PART_RE.match(p.name):
+            try:
+                p.unlink()
+            except Exception:
+                pass
+        elif low == ".zip" and zip_remaining == 0:
             try:
                 p.unlink()
             except Exception:
@@ -421,6 +659,22 @@ def cleanup_archives(root: Path) -> None:
 # ============================================================================
 #  JSON -> YOLO 변환 (검증된 규칙)
 # ============================================================================
+def walk_images_and_jsons(root: Path):
+    """os.walk로 트리를 한 번만 훑어 이미지 경로 목록과 JSON 경로 목록을 동시에 만든다.
+    (이미지용/JSON용으로 각각 rglob을 도는 것보다 윈도우 NTFS의 대용량 트리에서 훨씬 빠르다.)"""
+    imgs = []
+    jsons = []
+    for dirpath, _dirnames, filenames in os.walk(root):
+        dp = Path(dirpath)
+        for fn in filenames:
+            low = fn.lower()
+            if low.endswith(".jpg") or low.endswith(".jpeg"):
+                imgs.append(dp / fn)
+            elif low.endswith(".json"):
+                jsons.append(dp / fn)
+    return imgs, jsons
+
+
 def find_images(root: Path):
     return [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() in IMG_SUFFIXES]
 
@@ -429,30 +683,37 @@ def find_jsons(root: Path):
     return [p for p in root.rglob("*") if p.is_file() and p.suffix.lower() == ".json"]
 
 
-def convert_class(root: Path, class_name: str):
+def convert_class(root: Path, class_name: str, allow_background: bool = True,
+                   rng: random.Random = None, need: int = None):
     """
-    root(해제된 트리) 안에서 rglob로 이미지/JSON을 모두 찾아 매칭 후 YOLO 변환.
+    root(해제된 트리) 안에서 이미지/JSON을 모두 찾아 매칭 후 YOLO 변환.
     이 클래스(class_name)의 disease_class를 가진 이미지만 대상.
-    반환: list[(img_path: Path, yolo_lines: list[str])]  (라벨 있는 것만),
-          그리고 통계 dict.
+    need가 주어지면(목표 장수) JSON을 무작위 순서로 훑다가 필요량의 3배를 확보하면
+    조기 종료한다(그룹 다양성 확보를 위한 여유분, 재현성은 rng 시드로 유지).
+    반환: list[(img_path: Path, yolo_lines: list[str])], 통계 dict.
     """
     cls_idx = CLASS_NAMES.index(class_name)
 
+    imgs, jsons = walk_images_and_jsons(root)
     # fname(basename) -> 이미지 경로 (대소문자/중복 대비: 소문자 stem+suffix 키)
-    imgs = find_images(root)
     img_by_name = {}
     for ip in imgs:
         img_by_name.setdefault(ip.name, ip)          # 정확 파일명
         img_by_name.setdefault(ip.name.lower(), ip)  # 소문자 폴백
 
-    jsons = find_jsons(root)
+    if rng is not None:
+        rng.shuffle(jsons)
+    target = (need * 3) if need else None
 
     results = []
-    stat = {"json_total": len(jsons), "img_total": len(imgs),
+    stat = {"json_total": len(jsons), "img_total": len(imgs), "scanned": 0,
             "class_mismatch": 0, "no_image": 0, "bad_json": 0,
-            "no_box": 0, "converted": 0}
+            "no_box": 0, "background": 0, "converted": 0}
 
     for jp in jsons:
+        if target is not None and len(results) >= target:
+            break
+        stat["scanned"] += 1
         try:
             with open(jp, "r", encoding="utf-8") as f:
                 d = json.load(f)
@@ -531,10 +792,23 @@ def convert_class(root: Path, class_name: str):
 
         if not lines:
             stat["no_box"] += 1
+            if allow_background:
+                # 병징 bbox가 없는 이미지도 배경(음성) 이미지로 포함 — '정상' 클래스처럼
+                # 원래 bbox가 없는 데이터가 통째로 제외되는 것을 막는다(YOLO의 정식 background
+                # 이미지 규약: 빈 라벨 .txt).
+                stat["background"] += 1
+                results.append((img_path, []))
+                stat["converted"] += 1
             continue
 
         results.append((img_path, lines))
         stat["converted"] += 1
+
+    if stat["scanned"] > 0 and stat["no_box"] > 0.9 * stat["scanned"] and not allow_background:
+        log(f"    [안내] 스캔한 JSON {stat['scanned']}개 중 {stat['no_box']}개가 병징 bbox 없이 저장돼 있습니다.")
+        log("           이 클래스는 '정상'처럼 원래 bbox가 없는 데이터일 수 있습니다.")
+        log("           지금은 --no-allow-background 상태라 이 이미지들이 전부 제외됩니다 —")
+        log("           '--allow-background'(기본값) 로 다시 실행하면 배경 이미지로 포함됩니다.")
 
     return results, stat
 
@@ -549,14 +823,31 @@ def count_accum_images(class_name: str) -> int:
     return sum(1 for p in d.iterdir() if p.is_file() and p.suffix.lower() in IMG_SUFFIXES)
 
 
-def reset_work_dir(work: Path):
+def reset_work_dir(work: Path, class_name: str = None):
+    """작업폴더 초기화. class_name이 주어지고 이전에 중단된 클래스와 같으면(마커 파일로 판별)
+    지우지 않고 재사용해 다운로드 이어받기가 가능하게 한다. 다르면 깨끗이 비운다."""
+    marker = work / ".doctorgreen_class"
+    if class_name is not None and work.exists() and marker.exists():
+        try:
+            prev = marker.read_text(encoding="utf-8").strip()
+        except Exception:
+            prev = None
+        if prev == class_name:
+            log(f"  [이어받기] 이전에 중단된 '{class_name}' 작업폴더를 재사용합니다: {work}")
+            return
     if work.exists():
-        shutil.rmtree(work, ignore_errors=True)
+        if not safe_rmtree(work, "작업폴더"):
+            raise RuntimeError(f"작업폴더를 안전하게 비울 수 없습니다: {work}")
     work.mkdir(parents=True, exist_ok=True)
+    if class_name is not None:
+        try:
+            marker.write_text(class_name, encoding="utf-8")
+        except Exception:
+            pass
 
 
 def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
-                  rng: random.Random) -> str:
+                   rng: random.Random, allow_background: bool = True) -> str:
     """
     한 클래스 전체 파이프라인. 반환: "ok" | "skip" | 실패사유 문자열.
     """
@@ -569,33 +860,38 @@ def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
     if have >= per_class:
         log(f"  이미 {have}장 확보됨(>= {per_class}) -> 건너뜁니다.")
         return "skip"
+    need = per_class - have
 
     keys = FILE_KEYS_BY_CLASS[class_name]
     filekeys = f"{keys['ts']},{keys['tl']}"
 
-    # 디스크 여유 경고
+    # 디스크 여유 판정 — 원천(tar) 용량뿐 아니라 해제 피크(tar+zip, 이후 zip+이미지)까지 감안
     approx = APPROX_GB_BY_CLASS.get(class_name, 30)
+    disk_need = approx * DISK_MARGIN_FACTOR
     free = disk_free_gb(work_dir)
-    print_disk(work_dir, f"(이 클래스 예상 원천 ~{approx}GB, 해제분 추가 필요)")
-    if 0 <= free < approx:
-        log(f"  [경고] 디스크 여유({free:.1f}GB) < 예상 용량({approx}GB). 이 클래스를 건너뜁니다.")
-        return f"디스크 부족(여유 {free:.1f}GB < {approx}GB)"
+    print_disk(work_dir, f"(이 클래스 원천 ~{approx}GB, 해제 피크 포함 필요량 ~{disk_need:.0f}GB)")
+    if 0 <= free < disk_need:
+        log(f"  [경고] 디스크 여유({free:.1f}GB) < 필요 예상량({disk_need:.0f}GB, 원천 {approx}GB의 "
+            f"{DISK_MARGIN_FACTOR}배). 이 클래스를 건너뜁니다.")
+        return f"디스크 부족(여유 {free:.1f}GB < 필요 {disk_need:.0f}GB)"
 
-    # 1) WORK_DIR 비우고 다운로드
-    reset_work_dir(work_dir)
+    # 1) 작업폴더 준비(이전 중단 시 같은 클래스면 재사용 -> 다운로드 이어받기)
+    reset_work_dir(work_dir, class_name)
     tar_path = work_dir / "download.tar"
-    try:
-        download_to(filekeys, tar_path, apikey)
-    except Exception as e:
-        return f"다운로드 실패: {e}"
 
-    # 2) 성공/실패(에러본문) 판별
-    err = looks_like_error_body(tar_path)
-    if err:
-        log(f"  [실패] 다운로드 응답이 데이터가 아닙니다:\n    {err}")
-        return f"에러본문/HTTP: {err[:120]}"
+    if tar_path.exists() and not looks_like_error_body(tar_path):
+        log("  [이어받기] 이미 완전한 download.tar가 있어 다운로드를 건너뜁니다.")
+    else:
+        try:
+            download_to(filekeys, tar_path, apikey)
+        except Exception as e:
+            return f"다운로드 실패: {e}"
+        err = looks_like_error_body(tar_path)
+        if err:
+            log(f"  [실패] 다운로드 응답이 데이터가 아닙니다:\n    {err}")
+            return f"에러본문/HTTP: {err[:120]}"
 
-    # 3) tar 해제
+    # 2) tar 해제
     extract_root = work_dir / "extracted"
     try:
         log("  [해제] download.tar 해제 중 ...")
@@ -607,7 +903,12 @@ def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
     except Exception as e:
         return f"tar 해제 실패: {e}"
 
-    # 4) part 병합
+    free2 = disk_free_gb(work_dir)
+    print_disk(work_dir, "(tar 해제 후, zip 해제 전 재확인)")
+    if 0 <= free2 < approx:
+        return f"디스크 부족(tar 해제 후 여유 {free2:.1f}GB < 원천 {approx}GB, zip 해제 전 중단)"
+
+    # 3) part 병합
     try:
         merged = merge_parts(extract_root)
         if merged:
@@ -615,60 +916,73 @@ def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
     except Exception as e:
         log(f"  [경고] part 병합 중 오류(계속 진행): {e}")
 
-    # 5) 중첩 zip 해제
+    free3 = disk_free_gb(work_dir)
+    if 0 <= free3 < approx:
+        return f"디스크 부족(zip 해제 전 여유 {free3:.1f}GB < 원천 {approx}GB)"
+
+    # 4) 중첩 zip 해제
+    zip_remaining = 1  # 알 수 없음 -> 기본은 안전하게 "남아있음" 취급(아래에서 예외 시 그대로 유지)
     try:
-        unzip_recursive(extract_root, max_rounds=3)
+        zip_remaining = unzip_recursive(extract_root, max_rounds=3)
     except Exception as e:
         log(f"  [경고] zip 해제 중 오류(계속 진행): {e}")
 
-    # 6) 잔여 아카이브 정리
-    cleanup_archives(extract_root)
+    # 5) 잔여 아카이브 정리(zip이 전부 풀렸을 때만 zip도 삭제)
+    cleanup_archives(extract_root, zip_remaining)
 
-    # 해제 후 파일 0 검사
-    any_file = any(p.is_file() for p in extract_root.rglob("*"))
+    # 해제 후 파일 0 검사(rglob은 지연 평가라 next()로 전수 순회를 피한다)
+    any_file = next(extract_root.rglob("*"), None) is not None
     if not any_file:
         return "해제 후 파일 0개"
 
-    # 7) JSON -> YOLO 변환
+    # 6) JSON -> YOLO 변환
     log("  [변환] JSON -> YOLO 라벨 변환 중 ...")
     try:
-        results, stat = convert_class(extract_root, class_name)
+        results, stat = convert_class(extract_root, class_name, allow_background=allow_background,
+                                       rng=rng, need=need)
     except Exception as e:
         return f"변환 실패: {e}"
 
-    log(f"    이미지 {stat['img_total']}장 / JSON {stat['json_total']}개 발견")
-    log(f"    변환 성공 {stat['converted']}장 | 클래스불일치 {stat['class_mismatch']} "
-        f"| 이미지없음 {stat['no_image']} | JSON오류 {stat['bad_json']} | 박스없음 {stat['no_box']}")
+    log(f"    이미지 {stat['img_total']}장 / JSON {stat['json_total']}개 발견(스캔 {stat['scanned']}개)")
+    log(f"    변환 성공 {stat['converted']}장(배경 {stat['background']}장 포함) | 클래스불일치 {stat['class_mismatch']} "
+        f"| 이미지없음 {stat['no_image']} | JSON오류 {stat['bad_json']} | 박스없음(제외) "
+        f"{stat['no_box'] - stat['background']}")
 
     if not results:
         return "변환 결과 0장(이 클래스로 매핑된 이미지 없음)"
 
-    # 8) per_class 무작위 샘플(부족분만 채우도록)
-    #    이미 _accum 에 있는 파일명(stem)은 제외 — 중단 후 재실행 시 같은 이미지가
-    #    "_1" 접미사로 중복 저장되면 그룹 키가 달라져 train/val/test 분할 누수가 생긴다.
+    # 7) per_class 무작위 샘플(부족분만 채우도록)
+    #    이미 _accum 에 있는 파일명(stem)은 제외 — 중단 후 재실행 시 같은 이미지가 다시
+    #    저장되는 것을 막는다.
     acc_img = ACCUM_DIR / class_name / "images"
     acc_lbl = ACCUM_DIR / class_name / "labels"
     acc_img.mkdir(parents=True, exist_ok=True)
     acc_lbl.mkdir(parents=True, exist_ok=True)
     used_stems = set(p.stem for p in acc_img.iterdir() if p.is_file())
 
-    need = per_class - have
     rng.shuffle(results)
     sample = [r for r in results if r[0].stem not in used_stems][:need]
     log(f"    누적 목표 {per_class}장 중 현재 {have}장 -> 이번에 {len(sample)}장 추가")
 
-    # 9) ACCUM_DIR/{클래스}/{images,labels}로 복사
+    # 8) ACCUM_DIR/{클래스}/{images,labels}로 복사(라벨을 먼저 써서, 중간에 중단돼도
+    #    라벨 없는 이미지가 남지 않게 한다 — 이미지가 없으면 collect_accum이 애초에 안 읽는다)
     copied = 0
     for img_path, lines in sample:
-        stem = img_path.stem
+        orig_stem = img_path.stem
+        gkey = group_key(orig_stem)
+        stem = orig_stem
         k = 1
         while stem in used_stems:
-            stem = f"{img_path.stem}_{k}"
+            # "~dupN" 처럼 숫자로 끝나지 않는 접미사를 써서 group_key()의 자동 추정
+            # 정규식(끝의 연속 숫자 제거)이 오작동하지 않게 한다. 그래도 안전하게 원본
+            # stem에서 계산한 gkey를 .gkey 사이드카에 별도로 저장해 그룹 정보를 보존한다.
+            stem = f"{orig_stem}~dup{k}n"
             k += 1
         used_stems.add(stem)
         try:
-            shutil.copy2(img_path, acc_img / (stem + ".jpg"))
             (acc_lbl / (stem + ".txt")).write_text("\n".join(lines), encoding="utf-8")
+            (acc_lbl / (stem + ".gkey")).write_text(gkey, encoding="utf-8")
+            shutil.copy2(img_path, acc_img / (stem + ".jpg"))
             copied += 1
         except Exception as e:
             log(f"    [경고] 복사 실패({img_path.name}): {e}")
@@ -676,17 +990,97 @@ def process_class(class_name: str, per_class: int, work_dir: Path, apikey: str,
     log(f"  [저장] {copied}장 -> {acc_img.parent}")
     log(f"  현재 '{class_name}' 누적: {count_accum_images(class_name)}장")
 
-    # 10) WORK_DIR 삭제로 회수
+    # 9) WORK_DIR 삭제로 회수(성공적으로 끝났으므로 마커/이어받기 정보도 함께 정리)
     shutil.rmtree(work_dir, ignore_errors=True)
     print_disk(BASE_DIR, "(작업폴더 정리 후)")
     return "ok"
 
 
 # ============================================================================
+#  --peek: 라벨 파일만 받아 JSON 구조·API 키를 확인
+# ============================================================================
+def peek_class(class_name: str, work_dir: Path, apikey: str) -> int:
+    """라벨(tl) 파일만 받아 해제한 뒤 첫 JSON의 스키마(최상위 키, images 타입, annotations[0])를
+    출력하고 종료한다. 194GB를 커밋하기 전에 API 키·승인·JSON 스키마 가정을 한 번에 확인한다."""
+    log("")
+    log("=" * 70)
+    log(f"[--peek] '{class_name}' 라벨(tl) 파일만 받아 JSON 구조를 확인합니다")
+    log("=" * 70)
+
+    keys = FILE_KEYS_BY_CLASS[class_name]
+    reset_work_dir(work_dir, f"peek-{class_name}")
+    tar_path = work_dir / "peek.tar"
+    try:
+        download_to(keys["tl"], tar_path, apikey)
+    except Exception as e:
+        log(f"[오류] 라벨 다운로드 실패: {e}")
+        log("       '인증실패/권한/승인/신청' 문구가 보였다면 AI Hub 마이페이지에서 71451")
+        log("       다운로드 신청이 승인됐는지, 키가 정확한지, 국내망에서 실행 중인지 확인하세요.")
+        return 1
+
+    err = looks_like_error_body(tar_path)
+    if err:
+        log(f"[오류] 응답이 데이터가 아닙니다:\n  {err}")
+        return 1
+
+    extract_root = work_dir / "extracted"
+    try:
+        extract_tar(tar_path, extract_root)
+    except Exception as e:
+        log(f"[오류] tar 해제 실패: {e}")
+        return 1
+    merge_parts(extract_root)
+    unzip_recursive(extract_root, max_rounds=3)
+
+    jsons = find_jsons(extract_root)
+    log(f"  발견된 JSON: {len(jsons)}개")
+    if not jsons:
+        log("[오류] JSON을 하나도 찾지 못했습니다.")
+        return 1
+
+    jp = sorted(jsons)[0]
+    log(f"  샘플 파일: {jp}")
+    try:
+        with open(jp, "r", encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception as e:
+        log(f"[오류] JSON 파싱 실패: {e}")
+        return 1
+
+    log("")
+    log("  === 최상위 키 ===")
+    log(f"  {list(d.keys())}")
+    images_meta = d.get("images")
+    log("")
+    log(f"  === images 타입: {type(images_meta).__name__} ===")
+    log(f"  {json.dumps(images_meta, ensure_ascii=False, indent=2)[:1000]}")
+    anns = d.get("annotations")
+    ann_len = len(anns) if isinstance(anns, list) else "?"
+    log("")
+    log(f"  === annotations 타입: {type(anns).__name__}, 길이: {ann_len} ===")
+    if isinstance(anns, list) and anns:
+        log(f"  annotations[0]: {json.dumps(anns[0], ensure_ascii=False, indent=2)[:1000]}")
+
+    log("")
+    log("  이 출력이 prep_win.py의 파싱 가정과 일치하는지 확인하세요:")
+    log("    - d['images']['fname'], d['images']['width'], d['images']['height'], d['images']['disease_class']")
+    log("    - d['annotations'][i]['bbox'] = [x, y, w, h]")
+    log("  다르면 본 실행 전에 convert_class()의 images_meta/annotations 파싱부를 이 구조에 맞게 고치세요.")
+    log("")
+    log(f"  [확인] API 키·승인·국내망 상태가 정상입니다(라벨 파일을 정상적으로 받았습니다: "
+        f"{human_bytes(tar_path.stat().st_size) if tar_path.exists() else '?'}).")
+
+    shutil.rmtree(work_dir, ignore_errors=True)
+    return 0
+
+
+# ============================================================================
 #  최종 분할 + data.yaml
 # ============================================================================
 def collect_accum(class_name: str):
-    """ACCUM_DIR/{클래스}에서 (이미지, 라벨경로) 쌍 목록."""
+    """ACCUM_DIR/{클래스}에서 (이미지, 라벨경로, 그룹키) 3-튜플 목록.
+    그룹키는 .gkey 사이드카(원본 stem 기준, 충돌 회피 접미사의 영향을 받지 않음)를
+    우선 쓰고, 없으면(과거 데이터) 파일명에서 다시 추정한다."""
     acc_img = ACCUM_DIR / class_name / "images"
     acc_lbl = ACCUM_DIR / class_name / "labels"
     pairs = []
@@ -696,7 +1090,15 @@ def collect_accum(class_name: str):
         if not (ip.is_file() and ip.suffix.lower() in IMG_SUFFIXES):
             continue
         lp = acc_lbl / (ip.stem + ".txt")
-        pairs.append((ip, lp if lp.exists() else None))
+        gp = acc_lbl / (ip.stem + ".gkey")
+        if gp.exists():
+            try:
+                gkey = gp.read_text(encoding="utf-8").strip() or group_key(ip.stem)
+            except Exception:
+                gkey = group_key(ip.stem)
+        else:
+            gkey = group_key(ip.stem)
+        pairs.append((ip, lp if lp.exists() else None, gkey))
     return pairs
 
 
@@ -715,19 +1117,37 @@ def group_key(stem: str) -> str:
     return re.sub(r"[_\-]?\d+$", "", stem)
 
 
+def cap_pairs_to_per_class(pairs: list, per_class: int, rng: random.Random) -> list:
+    """pairs(3-튜플)가 per_class개를 넘으면 그룹을 최대한 쪼개지 않고 줄인다.
+    (--only-build --per-class 를 함께 써도 _accum 전량이 아니라 per_class만 쓰도록 보장)"""
+    if per_class is None or len(pairs) <= per_class:
+        return pairs
+    groups_map = defaultdict(list)
+    for img, lbl, gkey in pairs:
+        groups_map[gkey].append((img, lbl, gkey))
+    gkeys = list(groups_map.keys())
+    rng.shuffle(gkeys)
+    out = []
+    for gk in gkeys:
+        if len(out) >= per_class:
+            break
+        out.extend(groups_map[gk])
+    return out[:per_class]
+
+
 def split_class_pairs(class_name: str, pairs: list, rng: random.Random, split: tuple):
     """
-    한 클래스의 (이미지, 라벨) 쌍 목록을 그룹(개체) 인식 분할로 train/val/test에 배정한다.
-    그룹 키가 사실상 전부 유니크(그룹 수 >= 샘플 수의 95%)면 그룹 정보가 없다고 보고
-    기존 이미지 단위 랜덤 분할로 폴백한다.
-    반환: (train_items, val_items, test_items, info: dict)
+    한 클래스의 (이미지, 라벨, 그룹키) 3-튜플 목록을 그룹(개체) 인식 분할로
+    train/val/test에 배정한다. 그룹 키가 사실상 전부 유니크(그룹 수 >= 샘플 수의 95%)면
+    그룹 정보가 없다고 보고 기존 이미지 단위 랜덤 분할로 폴백한다.
+    반환: (train_items, val_items, test_items, info: dict) — 각 items는 3-튜플 목록.
     """
     tr_r, va_r, te_r = split
     n = len(pairs)
 
     groups_map = defaultdict(list)
-    for img, lbl in pairs:
-        groups_map[group_key(img.stem)].append((img, lbl))
+    for img, lbl, gkey in pairs:
+        groups_map[gkey].append((img, lbl, gkey))
     gkeys = list(groups_map.keys())
     use_group = len(gkeys) < 0.95 * max(1, n)
 
@@ -740,9 +1160,16 @@ def split_class_pairs(class_name: str, pairs: list, rng: random.Random, split: t
             if n_val_g + n_test_g >= n_g:
                 n_val_g = 1
                 n_test_g = 1 if n_g >= 2 else 0
+        elif n_g == 2:
+            n_val_g = 1
+            n_test_g = 0
+            log(f"    [경고] '{class_name}' 그룹이 2개뿐이라 val에 1그룹만 배정하고 test는 비웁니다"
+                f"(test 평가 불가). 데이터를 더 모으거나 GROUP_ID_REGEX/파일명 규칙을 점검하세요.")
         else:
             n_val_g = 0
             n_test_g = 0
+            log(f"    [경고] '{class_name}' 그룹이 {n_g}개뿐이라 val/test를 만들 수 없습니다 "
+                f"— 전량이 train으로만 들어갑니다. 이 클래스는 평가가 불가능합니다.")
 
         val_g = gkeys[:n_val_g]
         test_g = gkeys[n_val_g:n_val_g + n_test_g]
@@ -799,14 +1226,15 @@ def write_data_yaml(out_dir: Path):
     return yaml_path
 
 
-def build_final(out_dir: Path, seed: int):
+def build_final(out_dir: Path, seed: int, per_class: int = None):
     log("")
     log("=" * 70)
     log("[최종 분할] 클래스균형 8:1:1 분할 + data.yaml 생성")
     log("=" * 70)
 
     if out_dir.exists():
-        shutil.rmtree(out_dir, ignore_errors=True)
+        if not safe_rmtree(out_dir, "결과폴더"):
+            return None
     for s in ("train", "val", "test"):
         (out_dir / "images" / s).mkdir(parents=True, exist_ok=True)
         (out_dir / "labels" / s).mkdir(parents=True, exist_ok=True)
@@ -815,6 +1243,7 @@ def build_final(out_dir: Path, seed: int):
     used_stems = set()
     grand = {"train": 0, "val": 0, "test": 0}
     per_class_report = {}
+    missing_label_count = 0
     # 그룹(개체) 교차 검증용: split별로 실제 배정된 그룹 키를 전 클래스에 걸쳐 누적
     all_split_groups = {"train": set(), "val": set(), "test": set()}
     leak_total = 0
@@ -830,6 +1259,7 @@ def build_final(out_dir: Path, seed: int):
 
     for class_name in CLASS_NAMES:
         pairs = collect_accum(class_name)
+        pairs = cap_pairs_to_per_class(pairs, per_class, rng)
         n = len(pairs)
         if n == 0:
             log(f"  [주의] 클래스 '{class_name}' 이미지 0장 — 이 클래스는 최종셋에서 빠집니다.")
@@ -849,9 +1279,9 @@ def build_final(out_dir: Path, seed: int):
         # 이 클래스 안에서 같은 group_key가 두 split에 걸치면 즉시 경고(그룹 분할이 올바로
         # 동작했다면 항상 교차 0건이어야 한다. 폴백 시에는 교차가 발생할 수 있다).
         split_groups = {
-            "train": {group_key(img.stem) for img, _ in train_items},
-            "val": {group_key(img.stem) for img, _ in val_items},
-            "test": {group_key(img.stem) for img, _ in test_items},
+            "train": {gk for _, _, gk in train_items},
+            "val": {gk for _, _, gk in val_items},
+            "test": {gk for _, _, gk in test_items},
         }
         for a, b in (("train", "val"), ("train", "test"), ("val", "test")):
             overlap = split_groups[a] & split_groups[b]
@@ -864,20 +1294,22 @@ def build_final(out_dir: Path, seed: int):
             all_split_groups[split_name] |= gset
 
         for split, items in (("train", train_items), ("val", val_items), ("test", test_items)):
-            for img, lbl in items:
+            for img, lbl, _gkey in items:
                 stem = img.stem
                 k = 1
                 while stem in used_stems:
-                    stem = f"{img.stem}_{k}"
+                    stem = f"{img.stem}~dup{k}n"
                     k += 1
                 used_stems.add(stem)
                 try:
-                    shutil.copy2(img, out_dir / "images" / split / (stem + ".jpg"))
                     dst_lbl = out_dir / "labels" / split / (stem + ".txt")
                     if lbl is not None and lbl.exists():
                         shutil.copy2(lbl, dst_lbl)
                     else:
                         dst_lbl.write_text("", encoding="utf-8")
+                        missing_label_count += 1
+                        log(f"    [경고] 라벨 없는 이미지 → 빈 라벨로 처리: {img.name}")
+                    shutil.copy2(img, out_dir / "images" / split / (stem + ".jpg"))
                     grand[split] += 1
                 except Exception as e:
                     log(f"    [경고] 복사 실패({img.name}): {e}")
@@ -897,15 +1329,45 @@ def build_final(out_dir: Path, seed: int):
     else:
         log(f"    [경고] 총 {leak_total}건의 그룹 교차 발견 — 위 경고 내역을 확인하세요.")
 
+    if missing_label_count:
+        log("")
+        log(f"  [경고] 라벨 누락 {missing_label_count}건 — 빈 라벨(배경)로 처리했습니다. 위 상세 내역을 확인하세요.")
+
     log("")
     log("  === 최종 클래스별 · split별 장수 ===")
     for class_name in CLASS_NAMES:
         tr, va, te = per_class_report.get(class_name, (0, 0, 0))
         log(f"    {class_name:>6}:  train {tr:4d} | val {va:4d} | test {te:4d}")
     log(f"    {'합계':>6}:  train {grand['train']:4d} | val {grand['val']:4d} | test {grand['test']:4d}")
+
+    empty_eval_classes = [c for c, (tr, va, te) in per_class_report.items() if (tr + va + te) > 0 and (va == 0 or te == 0)]
+    if empty_eval_classes:
+        log("")
+        for c in empty_eval_classes:
+            log(f"  [경고] '{c}' 클래스가 val/test에 0장 — 이 클래스는 평가가 불가능합니다.")
+
     log("")
     log(f"  data.yaml 생성 완료: {yaml_path}")
     return yaml_path
+
+
+# ============================================================================
+#  --dry-run: 실제 다운로드 없이 환경만 점검
+# ============================================================================
+def run_dry_run(work_dir: Path, out_dir: Path, accum_dir: Path) -> int:
+    log("\n[--dry-run] 실제 다운로드 없이 환경만 점검합니다(API 키 입력 없음).")
+    ok = check_python_version()
+    preflight_check_filekeys()
+    for label, p in (("작업폴더", work_dir), ("결과폴더", out_dir), ("누적폴더", accum_dir)):
+        warn_path_issues(label, p)
+        print_disk(p, f"({label})")
+    log("")
+    if ok:
+        log("[--dry-run] 점검 완료. 문제가 없으면 다음으로 'python prep_win.py --peek' 를 실행해")
+        log("            API 키·JSON 스키마를 확인한 뒤, 본 실행('python prep_win.py')으로 넘어가세요.")
+        return 0
+    log("[--dry-run] 위 오류를 해결한 뒤 다시 실행하세요.")
+    return 2
 
 
 # ============================================================================
@@ -942,9 +1404,20 @@ def parse_args(argv):
     p.add_argument("--per-class", type=int, default=PER_CLASS,
                    help=f"클래스당 목표 장수(기본 {PER_CLASS})")
     p.add_argument("--only-build", action="store_true",
-                   help="다운로드 없이 이미 모아둔 _accum 으로 최종 분할만 수행")
+                   help="다운로드 없이 이미 모아둔 _accum 으로 최종 분할만 수행(--per-class도 적용됨)")
     p.add_argument("--work-dir", default=str(WORK_DIR), help="작업(임시) 폴더 경로 override")
     p.add_argument("--out-dir", default=str(OUT_DIR), help="최종 결과 폴더 경로 override")
+    p.add_argument("--accum-dir", default=str(ACCUM_DIR),
+                   help="클래스별 누적 샘플 저장 폴더 경로 override(기본: 스크립트 옆 _accum)")
+    p.add_argument("--dry-run", action="store_true",
+                   help="다운로드 없이 파이썬 버전/디스크/경로/filekey만 점검하고 종료")
+    p.add_argument("--peek", action="store_true",
+                   help="라벨(tl) 파일만 받아 JSON 구조·API 키·승인 상태를 확인하고 종료(본 실행 전 강력 권장)")
+    p.add_argument("--allow-background", dest="allow_background", action="store_true",
+                   default=ALLOW_BACKGROUND_DEFAULT,
+                   help="병징 bbox가 없는 이미지를 빈 라벨(배경) 이미지로 포함(기본값, '정상' 클래스에 필요)")
+    p.add_argument("--no-allow-background", dest="allow_background", action="store_false",
+                   help="병징 bbox가 없는 이미지를 제외(과거 동작과 동일)")
     return p.parse_args(argv)
 
 
@@ -955,17 +1428,28 @@ def main(argv=None):
     out_dir = Path(args.out_dir).resolve()
     per_class = max(1, args.per_class)
 
+    global ACCUM_DIR
+    ACCUM_DIR = Path(args.accum_dir).resolve()
+
     log("닥터그린 딸기 병해 데이터 준비 스크립트")
     log(f"  BASE_DIR : {BASE_DIR}")
     log(f"  WORK_DIR : {work_dir}")
     log(f"  ACCUM_DIR: {ACCUM_DIR}")
     log(f"  OUT_DIR  : {out_dir}")
-    log(f"  클래스당 목표: {per_class}장 | SEED={SEED} | 분할 {SPLIT}")
+    log(f"  클래스당 목표: {per_class}장 | SEED={SEED} | 분할 {SPLIT} | 배경이미지 포함: {args.allow_background}")
+
+    if not check_python_version():
+        return 2
+    for label, p in (("작업폴더", work_dir), ("결과폴더", out_dir), ("누적폴더", ACCUM_DIR)):
+        warn_path_issues(label, p)
     print_disk(BASE_DIR)
+
+    if args.dry_run:
+        return run_dry_run(work_dir, out_dir, ACCUM_DIR)
 
     if args.only_build:
         log("\n[--only-build] 다운로드를 건너뛰고 _accum 으로 최종 분할만 수행합니다.")
-        if build_final(out_dir, SEED):
+        if build_final(out_dir, SEED, per_class):
             print_next_steps(out_dir)
         return 0
 
@@ -983,6 +1467,7 @@ def main(argv=None):
         classes = list(DOWNLOAD_ORDER)
 
     log(f"\n처리 대상(작은 클래스부터): {classes}")
+    preflight_check_filekeys()
 
     # API 키 입력 (메모리에만 보관, 화면 표시 안 됨)
     apikey = getpass.getpass("AI Hub API 키 입력(화면 표시 안 됨): ").strip()
@@ -990,18 +1475,29 @@ def main(argv=None):
         log("[오류] API 키가 비어 있습니다. 다시 실행하세요.")
         return 2
 
+    if args.peek:
+        target_class = classes[0]
+        log(f"\n[--peek] 대상 클래스: {target_class} (--classes 로 다른 클래스도 지정 가능)")
+        return peek_class(target_class, work_dir, apikey)
+
+    log("\n[안내] 처음 실행하는 PC/키라면 Ctrl+C로 중단 후 'python prep_win.py --peek' 를")
+    log("       먼저 실행해 API 키·JSON 스키마를 확인하는 것을 강력히 권장합니다.")
+
     ACCUM_DIR.mkdir(parents=True, exist_ok=True)
     rng = random.Random(SEED)  # 클래스 샘플링에 재사용
 
     results = {}
     failures = []
+    interrupted = False
     for class_name in classes:
         try:
-            status = process_class(class_name, per_class, work_dir, apikey, rng)
+            status = process_class(class_name, per_class, work_dir, apikey, rng, args.allow_background)
         except KeyboardInterrupt:
-            log("\n[중단] 사용자가 Ctrl+C로 중단했습니다. 받은 클래스는 보존됩니다.")
-            log("       재실행하면 남은 클래스부터 이어서 진행합니다.")
-            shutil.rmtree(work_dir, ignore_errors=True)
+            log("\n[중단] 사용자가 Ctrl+C로 중단했습니다.")
+            log(f"       진행 중이던 클래스의 임시 파일을 지우지 않고 남겨 두었습니다: {work_dir}")
+            log("       재실행하면 다운로드가 중간까지 진행됐던 경우 이어받기를 시도합니다.")
+            log("       공간이 필요하면 이 폴더를 직접 지우세요(단, 그러면 처음부터 다시 받습니다).")
+            interrupted = True
             break
         except Exception as e:
             status = f"예외: {e}"
@@ -1010,8 +1506,9 @@ def main(argv=None):
             failures.append((class_name, status))
             log(f"  [실패목록 기록] {class_name}: {status}")
 
-    # 작업폴더 정리
-    shutil.rmtree(work_dir, ignore_errors=True)
+    # 작업폴더 정리(중단이 아니었을 때만 — 중단 시에는 이어받기를 위해 보존)
+    if not interrupted:
+        shutil.rmtree(work_dir, ignore_errors=True)
 
     log("\n" + "=" * 70)
     log("클래스별 처리 결과")
@@ -1023,13 +1520,15 @@ def main(argv=None):
         log("\n[실패한 클래스] (해결 후 재실행하면 이어서 진행됩니다)")
         for c, why in failures:
             log(f"  - {c}: {why}")
-        log("  힌트: '해외에서/제한/승인' 문구면 -> 국내망에서 실행 중인지, AI Hub에서 이 데이터셋")
-        log("        신청·승인이 완료됐는지 확인하세요. HTTP 5xx면 잠시 후 재시도하세요.")
+        log("  힌트: 위 각 클래스 실패 사유에 표시된 AI Hub 응답 본문을 확인하세요.")
+        log("        '인증실패/권한/승인/신청/해외/제한' 문구 -> 국내망(해외 VPN 끄기)에서 실행 중인지,")
+        log("        AI Hub 마이페이지에서 71451 다운로드 신청이 승인됐는지, API 키가 정확한지 확인하세요.")
+        log("        (휴대폰 본인인증 재인증 후 기존 승인이 취소된 경우가 있어 마이페이지 확인이 필요할 수 있습니다.)")
 
     # 최종 분할(모을 게 있으면)
     if any(count_accum_images(c) > 0 for c in CLASS_NAMES):
         try:
-            if build_final(out_dir, SEED):
+            if build_final(out_dir, SEED, per_class):
                 print_next_steps(out_dir)
         except Exception as e:
             log(f"[오류] 최종 분할 실패: {e}")
