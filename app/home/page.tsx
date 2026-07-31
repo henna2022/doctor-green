@@ -97,54 +97,56 @@ export default function HomePage() {
   useEffect(() => {
     if (loading) return;
 
-    if (!navigator.geolocation) {
-      setLocationName("위치 정보 사용 불가");
-      setLoadingData(false);
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (pos) => {
-        const lat = pos.coords.latitude;
-        const lon = pos.coords.longitude;
-
-        const [name, weatherData, pests, forecasts] = await Promise.all([
-          fetchLocationName(lat, lon),
-          fetchWeather(lat, lon),
-          fetchNearbyPests(lat, lon),
-          userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
-        ]);
-
-        setLocationName(name);
-        setWeather(weatherData);
-        setAlerts(
-          generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
-        );
+    (async () => {
+      if (!navigator.geolocation) {
+        setLocationName("위치 정보 사용 불가");
         setLoadingData(false);
-      },
-      (err) => {
-        console.error("Geolocation error:", err.code, err.message);
+        return;
+      }
 
-        // 위치 못 받으면 기본 위치 사용 (안성시 - 한경대 위치)
-        const fallbackLat = 37.0079;
-        const fallbackLon = 127.2797;
+      navigator.geolocation.getCurrentPosition(
+        async (pos) => {
+          const lat = pos.coords.latitude;
+          const lon = pos.coords.longitude;
 
-        Promise.all([
-          fetchLocationName(fallbackLat, fallbackLon),
-          fetchWeather(fallbackLat, fallbackLon),
-          fetchNearbyPests(fallbackLat, fallbackLon),
-          userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
-        ]).then(([name, weatherData, pests, forecasts]) => {
+          const [name, weatherData, pests, forecasts] = await Promise.all([
+            fetchLocationName(lat, lon),
+            fetchWeather(lat, lon),
+            fetchNearbyPests(lat, lon),
+            userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
+          ]);
+
           setLocationName(name);
           setWeather(weatherData);
           setAlerts(
             generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
           );
           setLoadingData(false);
-        });
-      },
-      { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
-    );
+        },
+        (err) => {
+          console.error("Geolocation error:", err.code, err.message);
+
+          // 위치 못 받으면 기본 위치 사용 (안성시 - 한경대 위치)
+          const fallbackLat = 37.0079;
+          const fallbackLon = 127.2797;
+
+          Promise.all([
+            fetchLocationName(fallbackLat, fallbackLon),
+            fetchWeather(fallbackLat, fallbackLon),
+            fetchNearbyPests(fallbackLat, fallbackLon),
+            userCrops.length > 0 ? fetchPestForecast(userCrops) : Promise.resolve([]),
+          ]).then(([name, weatherData, pests, forecasts]) => {
+            setLocationName(name);
+            setWeather(weatherData);
+            setAlerts(
+              generateAlerts({ weather: weatherData, ncpms: forecasts, farmmap: pests, cityName: name })
+            );
+            setLoadingData(false);
+          });
+        },
+        { enableHighAccuracy: false, timeout: 15000, maximumAge: 600000 }
+      );
+    })();
   }, [loading, userCrops]);
 
   if (loading) {

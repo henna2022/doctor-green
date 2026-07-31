@@ -30,6 +30,9 @@ export default function CropDetailPage() {
   const [editMemo, setEditMemo] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // "지금" 시각을 마운트 시 한 번만 캡처 (렌더 중 Date.now() 직접 호출 방지)
+  const [now] = useState(() => Date.now());
+
   useEffect(() => {
     async function load() {
       const user = await getCurrentUser();
@@ -113,7 +116,7 @@ export default function CropDetailPage() {
 
   const daysSince = (date: string | null) => {
     if (!date) return null;
-    const diff = Math.floor((Date.now() - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
+    const diff = Math.floor((now - new Date(date).getTime()) / (1000 * 60 * 60 * 24));
     return diff >= 0 ? diff : null;
   };
 
