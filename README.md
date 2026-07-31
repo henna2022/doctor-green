@@ -19,7 +19,7 @@ Next.js 기반 웹 애플리케이션입니다. 기상청·농촌진흥청 공�
 
 ## 주요 기능
 
-- **실시간 센서 모니터링** — 온도·습도·토양수분 값을 실시간으로 확인하고(`app/realtime/[deviceId]`),
+- **실시간 센서 모니터링** — 온도·습도·토양수분 값을 5초 폴링 기반 준실시간으로 확인하고(`app/realtime/[deviceId]`),
   날짜별 24시간 추이 그래프로 과거 데이터를 되짚어볼 수 있습니다(`app/history`).
 - **LED / 팬 원격 제어** — 앱에서 켜고 끄면 Supabase의 원하는 상태(desired state)가 갱신되고,
   ESP32가 이를 폴링해 실제 GPIO를 제어합니다.
@@ -60,6 +60,9 @@ Next.js 기반 웹 애플리케이션입니다. 기상청·농촌진흥청 공�
   에러를 그대로 전달합니다.
 - **공공데이터 연동**: 기상청(KMA) 단기예보, 농촌진흥청 병해충 정보시스템(NCPMS), 팜맵(FarmMap)
   API를 서버 사이드 Route Handler에서 프록시해 클라이언트에 안전하게 전달합니다.
+
+설계 결정의 배경과 트레이드오프(폴링 vs Supabase Realtime, desired-state 액추에이터 제어, AI 진단
+실패 처리 원칙, 알려진 한계 등)는 [`docs/ARCHITECTURE.md`](./docs/ARCHITECTURE.md)에 정리했습니다.
 
 ## 기술 스택
 
