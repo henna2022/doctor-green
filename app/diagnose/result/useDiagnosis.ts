@@ -102,66 +102,68 @@ export function useDiagnosis() {
 
   // 진단 API 호출
   useEffect(() => {
-    const img = sessionStorage.getItem("diagnose_image");
-    const cropName = sessionStorage.getItem("diagnose_crop") ?? "";
-    const savedCropId = sessionStorage.getItem("diagnose_crop_id");
-
-    if (!img) {
-      router.replace("/diagnose");
-      return;
-    }
-    setImage(img);
-    setCrop(cropName);
-    setCropId(savedCropId || null);
-
-    // 종합 평가용 센서값 로드 (스냅샷에서 넘어온 값 우선, 없으면 내 디바이스 최신값)
     (async () => {
-      const raw = sessionStorage.getItem("diagnose_sensors");
-      if (raw) {
-        try { setSensors(JSON.parse(raw)); return; } catch {}
-      }
-      const devices = await getMyDevices();
-      if (devices.length > 0) {
-        const r = await readSensors(devices[0].id);
-        if (r.ok) setSensors({ temp: r.temp, hum: r.hum, soil: r.soil });
-      }
-    })();
+      const img = sessionStorage.getItem("diagnose_image");
+      const cropName = sessionStorage.getItem("diagnose_crop") ?? "";
+      const savedCropId = sessionStorage.getItem("diagnose_crop_id");
 
-    (async () => {
-      try {
-        const result = await requestDiagnose(img);
+      if (!img) {
+        router.replace("/diagnose");
+        return;
+      }
+      setImage(img);
+      setCrop(cropName);
+      setCropId(savedCropId || null);
 
-        if (!result.ok) {
-          const data = result.data as { error?: string; detail?: string } | undefined;
-          setErrorMsg(data?.detail ?? data?.error ?? result.errorMsg ?? "알 수 없는 오류");
+      // 종합 평가용 센서값 로드 (스냅샷에서 넘어온 값 우선, 없으면 내 디바이스 최신값)
+      (async () => {
+        const raw = sessionStorage.getItem("diagnose_sensors");
+        if (raw) {
+          try { setSensors(JSON.parse(raw)); return; } catch {}
+        }
+        const devices = await getMyDevices();
+        if (devices.length > 0) {
+          const r = await readSensors(devices[0].id);
+          if (r.ok) setSensors({ temp: r.temp, hum: r.hum, soil: r.soil });
+        }
+      })();
+
+      (async () => {
+        try {
+          const result = await requestDiagnose(img);
+
+          if (!result.ok) {
+            const data = result.data as { error?: string; detail?: string } | undefined;
+            setErrorMsg(data?.detail ?? data?.error ?? result.errorMsg ?? "알 수 없는 오류");
+            setStage("error");
+            return;
+          }
+
+          const data = result.data as unknown as {
+            detected: boolean;
+            confidence?: number;
+            [k: string]: unknown;
+          };
+
+          if (!data.detected) {
+            setStage("not_detected");
+            return;
+          }
+
+          // ✨ 신뢰도 체크: 임계값 미만이면 판독 불가 처리
+          if (typeof data.confidence !== "number" || data.confidence < CONFIDENCE_THRESHOLD) {
+            setStage("low_confidence");
+            return;
+          }
+
+          setResult(data as unknown as DiagnosisResult);
+          setStage("done");
+        } catch (e: unknown) {
+          const msg = e instanceof Error ? e.message : String(e);
+          setErrorMsg(msg);
           setStage("error");
-          return;
         }
-
-        const data = result.data as unknown as {
-          detected: boolean;
-          confidence?: number;
-          [k: string]: unknown;
-        };
-
-        if (!data.detected) {
-          setStage("not_detected");
-          return;
-        }
-
-        // ✨ 신뢰도 체크: 임계값 미만이면 판독 불가 처리
-        if (typeof data.confidence !== "number" || data.confidence < CONFIDENCE_THRESHOLD) {
-          setStage("low_confidence");
-          return;
-        }
-
-        setResult(data as unknown as DiagnosisResult);
-        setStage("done");
-      } catch (e: unknown) {
-        const msg = e instanceof Error ? e.message : String(e);
-        setErrorMsg(msg);
-        setStage("error");
-      }
+      })();
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
