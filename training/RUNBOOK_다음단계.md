@@ -21,7 +21,7 @@ YOLO 탐지기는 위치·개수·심각도(severity)용으로 계속 쓰는 **�
 | 단계 | 주의사항 |
 |---|---|
 | ① 크롭 만들기 | ⚠ 병징이 없는 '정상' 클래스 사진이 크롭 단계에서 통째로 빠질 수 있는 버그가 발견됐습니다. **요약표에서 '정상' 행이 0이면 절대 다음 단계로 넘어가지 마세요.** |
-| ③ Colab 학습 | Colab 무료 티어는 세션이 끊길 수 있는데, 지금 스크립트는 중간에서 이어 학습하는 기능이 없어 **끊기면 처음부터 다시 돌려야 합니다.** 아래 ③에서 대처법 안내. |
+| ③ Colab 학습 | Colab 무료 티어는 세션이 끊길 수 있습니다. **지금 스크립트는 `--resume`으로 이어 학습하는 기능이 있으니, 끊기면 처음부터 다시 돌리지 말고 같은 명령에 `--resume`만 붙여 재실행하세요.** 아래 ③에서 절차 안내. |
 | ④ 평가 읽는 법 | ⚠ 혼동행렬 그림(`confusion_matrix.png`)의 한글 클래스명이 Colab 기본 폰트로는 **깨진 네모(□□□)로 나올 수 있습니다.** 숫자는 `.csv` 파일로 확인하세요(아래 ④). |
 | ⑤ export | export 결과(`export_meta.json`)에는 아직 크롭 여백(margin)·리사이즈 방식이 자동으로 담기지 않을 수 있습니다. 서빙 담당자에게 `README_CLASSIFIER.md` 4장의 "설계 결정" 값(margin 0.15, min-size 24px)을 그대로 전달하세요. |
 | ⑥ 앱 통합 | **이 저장소에는 아직 "YOLO 결과 + 분류기 결과를 합쳐 앱 응답으로 조립하는 코드"가 없습니다.** export까지가 이 파이프라인이 지금 해주는 일이고, 그 다음은 별도 개발 작업입니다(아래 ⑥ 참고). |
@@ -73,27 +73,30 @@ python crop_dataset.py --src C:\dg\dataset --out C:\dg\crops
 **예상 소요 시간:** 5,000장 기준 5~15분(디스크 속도에 따라 다름). 진행 중 화면에
 `[train] 크롭 N개 생성` 같은 줄이 split(train/val/test)마다 하나씩 나옵니다.
 
-**이 화면이 나오면 성공:**
+**이 화면이 나오면 성공(예시 — 실제로 71451 데이터셋에서 나온 실측값입니다):**
 ```
 ================================================================
 크롭 데이터셋 요약 (클래스 × split)
 ================================================================
-    클래스 |  train   val  test |   합계
-  --------------------------------------
-      정상 |    800   100   100 |    1000
-      역병 |    800   100   100 |    1000
-     시들음병 |    800   100   100 |    1000
-    잎끝마름 |    800   100   100 |    1000
-      황화 |    800   100   100 |    1000
-  --------------------------------------
-      합계 | ...
-  건너뜀: 작은박스 0 | 알수없는클래스 0 | 읽기오류 0
+    클래스 |  train(실측) |  참고: val+test 포함 합계
+  ------------------------------------------------------
+      정상 |       5,605  |   7,253
+      역병 |       4,661  |   6,118
+     시들음병 |       5,536  |   (미집계 예시)
+    잎끝마름 |       7,877  |   (미집계 예시)
+      황화 |       8,476  |  10,075
+  ------------------------------------------------------
+      합계 |  train 32,155 / val 4,326 / test 3,408 = 전체 39,889
+  건너뜀: 작은박스 869 | 알수없는클래스 0 | 배경 클래스 복구 0
   매니페스트: C:\dg\crops\manifest.json
 ```
-(실제 숫자는 다를 수 있습니다.) **핵심 확인: 5개 클래스 모두 train/val/test 세 칸이 다 0이
-아니어야 합니다.** 특히 `정상` 행이 0이면 — 알려진 버그일 가능성이 높으니 이 단계에서
-멈추고 담당자에게 알리거나 `training/README_CLASSIFIER.md`·최근 수정 내역을 확인한 뒤
-다시 실행하세요. (다른 4개 클래스 중 하나가 0이어도 마찬가지로 진행하지 마세요.)
+(실제 숫자는 실행 환경마다 다를 수 있습니다 — 위는 2026-08-01 실측값 예시입니다. 원본
+이미지는 5,000장인데 크롭이 39,889장인 것은 정상입니다 — 사진 한 장에 병징 박스가 여러
+개 잡히면 그만큼 크롭도 여러 장 나옵니다, 평균 약 8개/장.) **핵심 확인: 5개 클래스 모두
+train/val/test 세 칸이 다 0이 아니어야 합니다.** 특히 `정상` 행이 0이면 — 알려진 버그일
+가능성이 높으니 이 단계에서 멈추고 담당자에게 알리거나 `training/README_CLASSIFIER.md`·
+최근 수정 내역을 확인한 뒤 다시 실행하세요. (다른 4개 클래스 중 하나가 0이어도 마찬가지로
+진행하지 마세요.)
 
 **크롭 폴더 실제 용량 확인(선택, Drive 업로드 전 참고용):**
 `C:\dg\crops` 폴더를 윈도우 탐색기에서 우클릭 → **속성**을 보면 실제 크기가 나옵니다.
@@ -116,8 +119,9 @@ python crop_dataset.py --src C:\dg\dataset --out C:\dg\crops
 2. 생성된 `crops.zip`을 [Google Drive](https://drive.google.com)에 업로드합니다.
    (드라이브 웹사이트를 열고 원하는 폴더로 파일을 드래그 앤 드롭하면 됩니다.)
 
-**예상 소요 시간:** crops.zip 용량 ÷ 본인 업로드 속도. 예: 3GB, 업로드 30Mbps라면
-3×8000÷30 ≈ 800초(약 13분). 용량이 클수록, 업로드 속도가 느릴수록 오래 걸립니다.
+**예상 소요 시간:** crops.zip 용량 ÷ 본인 업로드 속도. 실측 crops.zip은 828MB이므로,
+업로드 30Mbps 가정 시 828×8÷30 ≈ 221초(약 3.5~4분)입니다. 용량이 클수록, 업로드 속도가
+느릴수록 오래 걸립니다(계산식: MB × 8 ÷ 업로드Mbps ≈ 초).
 
 **이 화면이 나오면 성공:** Google Drive 웹페이지에서 `crops.zip`이 목록에 뜨고
 업로드 진행률 표시가 사라지면 완료입니다(브라우저 우하단 업로드 상태 창 확인).
@@ -145,32 +149,49 @@ python crop_dataset.py --src C:\dg\dataset --out C:\dg\crops
    ```python
    !pip -q install timm
    ```
-4. 학습 실행:
+4. 학습 실행 — **실측 규모(train 32,155장, 8:1:1)에 맞춘 권장 설정**입니다(기존
+   `--epochs 40 --batch-size 32` 그대로 쓰면 L4에서 8~13시간이 걸려 세션이 못 버팁니다.
+   근거는 `README_CLASSIFIER.md` 5장 "실측 규모와 권장값" 참조):
    ```python
+   # 배정된 GPU가 L4(24GB)일 때
    !python train_classifier.py \
        --data /content/crops \
        --out /content/drive/MyDrive/doctor_green_training/cls_convnext \
-       --model convnext_tiny --img-size 384 --epochs 40 --batch-size 32
+       --model convnext_tiny --img-size 384 --epochs 15 --batch-size 48 --lr 4e-4 \
+       --warmup-epochs 2 --patience 5
+   ```
+   ```python
+   # 배정된 GPU가 T4(16GB, 무료 티어에서 흔함)일 때 — img-size를 낮춰 속도 보완
+   !python train_classifier.py \
+       --data /content/crops \
+       --out /content/drive/MyDrive/doctor_green_training/cls_convnext \
+       --model convnext_tiny --img-size 320 --epochs 12 --batch-size 24 \
+       --warmup-epochs 2 --patience 4
    ```
    `--out`을 반드시 **Drive 아래 경로**로 지정하세요 — 그래야 세션이 끊겨도 그때까지
-   결과(`best.pt`/`last.pt`/`results.csv`)가 보존됩니다.
+   결과(`best.pt`/`last.pt`/`results.csv`)가 보존되고, 아래 "세션이 끊기면"의 `--resume`
+   재개도 이 폴더를 기준으로 동작합니다. 배정된 GPU 종류는 노트북 우측 상단 또는
+   `!nvidia-smi` 실행 결과에서 확인할 수 있습니다.
 
-**예상 소요 시간(실데이터 ≈ 5,000 크롭 기준):**
+**예상 소요 시간(실측 train 32,155 크롭 기준, 상세 계산은 README_CLASSIFIER.md 참조):**
 
-| GPU | 1 epoch | 전체(조기종료 전, 보통 15~30epoch) |
-|---|---|---|
-| L4 | 약 1.5~2.5분 | 약 1~1.5시간 |
-| A100 | 약 40~60초 | 약 30~45분 |
+| GPU | 설정 | 1 epoch | 전체(조기종료 전 상한) |
+|---|---|---|---|
+| L4 | img384, batch48, epochs15 | 약 10~18분 | 약 2.5~4.5시간 |
+| A100 | img384, batch48, epochs15 | 약 4.5~7분 | 약 1.1~1.8시간 |
+| T4 | img320, batch24, epochs12 | 약 17~42분 | 약 3.4~8.4시간 |
 
-Colab 무료 티어는 T4/L4 등급을 배정하는 경우가 많고 배정 GPU를 고를 수 없습니다.
-`img-size`를 256으로 낮추면 1.5~2배 빨라지지만(정확도는 약간 낮아질 수 있음), 처음
-한 번은 기본값(384)으로 돌려보는 것을 권장합니다.
+조기종료(L4/A100: patience 5, T4: patience 4)가 걸리면 위 상한보다 짧게 끝나는 경우가
+많습니다. **T4는 편차가 큽니다** — 1 epoch째 로그에 찍히는 실제 소요 시간을 보고 전체
+예상 시간을 다시 계산한 뒤, 너무 길면 `--epochs`를 더 줄이거나 `--img-size 256`
+((384/256)²≈2.25배 빠름, 다만 미검증이라 정확도 하락을 감수해야 함)까지 낮추는 것도
+검토하세요.
 
-**이 화면이 나오면 성공(진행 중):**
+**이 화면이 나오면 성공(진행 중, L4 예시 — epochs 값은 실행한 명령에 따라 다름):**
 ```
 [환경] device=cuda | AMP=True | torch=2.x.x
 [클래스] ['정상', '역병', '시들음병', '잎끝마름', '황화']
-[epoch   1/40] lr=... train_loss=... val_loss=... val_acc=...
+[epoch   1/15] lr=... train_loss=... val_loss=... val_acc=...
     -> best 갱신(monitor=0.xxxx) best.pt 저장
 ...
 ```
@@ -185,18 +206,32 @@ Colab 무료 티어는 T4/L4 등급을 배정하는 경우가 많고 배정 GPU�
 `[클래스]` 줄에 5개 클래스가 다 나오는지(순서는 상관없음, 개수만) 여기서 한 번 더
 확인하면 좋습니다.
 
-**⚠ 세션이 끊기면(무료 티어에서 흔함):** 지금 `train_classifier.py`에는 "이어 학습" 기능이
-없습니다. `last.pt`가 Drive에 남아 있어도 **같은 명령을 다시 실행하면 epoch 0부터
-새로 시작**합니다. 대처법:
-- 끊김을 최대한 피하려면: 브라우저 탭을 계속 열어두고, 코드 실행 중 다른 탭 작업을
-  최소화하세요(Colab은 일정 시간 비활성 시 세션을 끊습니다).
-- 자주 끊긴다면 `--img-size 256`으로 낮춰 전체 학습 시간을 줄이거나, Colab Pro(유료)로
-  더 긴 세션을 확보하는 것을 검토하세요.
-- 끊긴 뒤 다시 실행할 때는 이전 `--out` 폴더를 그대로 두면 `last.pt`/`results.csv`가
-  남아 있어 "어디까지 갔었는지" 참고는 가능합니다(자동 이어받기는 아님).
+**⚠ 세션이 끊기면(무료 티어에서 흔함) — `--resume`으로 이어서 학습하세요:**
+`train_classifier.py`는 매 에폭 `last.pt`에 모델·옵티마이저·스케줄러·조기종료 상태를
+함께 저장합니다. 세션이 끊긴 뒤 대처법:
+1. **`--out`을 그대로 두고, 위 4단계에서 실행했던 것과 완전히 똑같은 명령 끝에 `--resume`만
+   붙여 다시 실행하세요.** (`--data`/`--out`/`--model`/`--img-size`/`--batch-size` 등을 바꾸면
+   안 됩니다 — 특히 img-size나 batch-size를 바꾸면 재개는 되지만 학습 조건이 달라집니다.)
+   ```python
+   !python train_classifier.py \
+       --data /content/crops \
+       --out /content/drive/MyDrive/doctor_green_training/cls_convnext \
+       --model convnext_tiny --img-size 384 --epochs 15 --batch-size 48 --lr 4e-4 \
+       --warmup-epochs 2 --patience 5 --resume
+   ```
+2. 로그에 `[재개] .../last.pt 에서 epoch N 부터 이어서 학습합니다`가 뜨면 정상 재개된
+   것입니다. 처음부터 다시 도는 것이 아니라 중단된 에폭 다음부터 이어집니다.
+3. Drive에 `last.pt`가 없으면(예: 첫 에폭도 끝나기 전에 끊김) `--resume`을 넣어도 자동으로
+   처음부터 시작합니다(에러는 아님) — 로그의 `[재개] --resume 이 지정됐지만 ... 가 없어
+   처음부터 시작합니다` 문구로 확인하세요.
+4. 끊김 자체를 줄이려면: 브라우저 탭을 계속 열어두고, 코드 실행 중 다른 탭 작업을
+   최소화하세요(Colab은 일정 시간 비활성 시 세션을 끊습니다). 자주 끊긴다면 Colab
+   Pro(유료)로 더 긴 세션을 확보하는 것도 검토하세요.
 
 **실패 시 대처:**
-- `CUDA out of memory` → `--batch-size`를 16 또는 8로 낮춰 재실행.
+- `CUDA out of memory` → `--batch-size`를 24(L4) 또는 12(T4) 로 낮춰 재실행(그래도 나면
+  더 낮추세요). **재실행 시에도 `--resume`을 붙이면 그때까지의 진행이 이어집니다** —
+  단, batch-size를 바꾸면 학습 조건이 달라진다는 점은 위 "세션이 끊기면" 1번 참고.
 - `[오류] train 클래스가 N개뿐입니다` → crops 폴더에 클래스 하위 폴더가 5개가 아니라는
   뜻입니다. ①의 요약표를 다시 확인하고, zip이 깨지지 않았는지(`unzip` 경고 확인)도 보세요.
 - `[오류] val 클래스(...) != train 클래스(...)` → train/val 어느 한쪽에서 특정 클래스
@@ -212,14 +247,15 @@ Colab 무료 티어는 T4/L4 등급을 배정하는 경우가 많고 배정 GPU�
     --out /content/drive/MyDrive/doctor_green_training/cls_convnext/eval
 ```
 
-**예상 소요 시간:** 1~5분(test 크롭 수에 따라 다름, 학습보다 훨씬 짧습니다).
+**예상 소요 시간:** 실측 test 3,408장 기준 약 3~10분(GPU/배치에 따라 다름, 학습보다 훨씬
+짧습니다).
 
 **이 화면이 나오면 성공:**
 ```
-[전체 정확도] 0.8xxx  (n=500)
-    정상: P=0.xxx R=0.xxx F1=0.xxx (n=100)
-    역병: P=0.xxx R=0.xxx F1=0.xxx (n=100)
-    ...
+[전체 정확도] 0.8xxx  (n=3408)
+    정상: P=0.xxx R=0.xxx F1=0.xxx (n=NNN)
+    역병: P=0.xxx R=0.xxx F1=0.xxx (n=NNN)
+    ...  (클래스별 n 합계가 위 전체 n=3408이 됩니다)
 [macro F1] 0.8xxx
 [임계값 스윕] threshold | coverage | acc@covered | (판단보류율)
     0.75     |  0.xxx  |   0.xxx    |  0.xxx
@@ -314,14 +350,17 @@ Colab 무료 티어는 T4/L4 등급을 배정하는 경우가 많고 배정 GPU�
 C:\dg\dataset (6.67GB, 완료)
    │  ① python crop_dataset.py --src C:\dg\dataset --out C:\dg\crops   [로컬/윈도우, 5~15분]
    ▼
-C:\dg\crops (원본보다 작음)
-   │  ② zip 압축 → Google Drive 업로드                                  [수십 분, 회선에 따라]
+C:\dg\crops (실측 39,889장, crops.zip 828MB)
+   │  ② zip 압축 → Google Drive 업로드                                  [828MB 기준 30Mbps로 약 3.5~4분,
+   │                                                                       회선에 따라 다름]
    ▼
 Google Drive 의 crops.zip
-   │  ③ Colab에서 압축 해제 → train_classifier.py                       [GPU, 약 1~1.5시간]
+   │  ③ Colab에서 압축 해제 → train_classifier.py                       [GPU, L4 약 2.5~4.5시간 /
+   │     (train 32,155장 기준 권장 설정, 세션 끊기면 --resume)              T4 약 3.4~8.4시간, 조기종료로
+   │                                                                       더 짧게 끝나는 경우가 많음]
    ▼
 best.pt (+ last.pt, results.csv, classes.json)
-   │  ④ eval_classifier.py                                              [1~5분]
+   │  ④ eval_classifier.py                                              [test 3,408장 기준 약 3~10분]
    ▼
 평가 리포트 5종 (summary.json 등)  ── 결과 확인 후 문제없으면 다음 단계
    │  ⑤ export_classifier.py                                           [1~3분]
