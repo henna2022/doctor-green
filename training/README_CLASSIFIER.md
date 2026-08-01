@@ -134,3 +134,39 @@ TorchScript 또는 onnxruntime로 크롭을 재분류하면 됩니다.
 `crops/`, `runs/`, 대용량 산출물은 **레포에 커밋하지 마세요**. 스크립트의 `--out`을 레포 밖 경로나
 `.gitignore` 대상으로 지정하세요. (`training/dataset_sample/`은 이미 gitignore됨 — 같은 선례를 따릅니다.
 필요하면 `training/crops/`, `training/runs/`를 `.gitignore`에 추가하세요.)
+
+## 8. k-fold 교차검증 (cross_validate.py)
+
+성능 수치를 공식으로 보고하기 전에 1회 돌려, 단일 split 운으로 생긴 수치가 아닌지
+평균 ± 편차로 확인하는 용도입니다. 일상 실험 루프에는 필요 없습니다.
+
+무엇을 하는가:
+- `crops/`의 train+val을 합쳐 그룹(개체, prep_win.py의 group_key와 동일 키) 인식
+  층화 k-fold를 만들고, fold마다 `train_classifier.py` + `eval_classifier.py`를
+  자동 실행해 집계합니다. **test/는 읽지도 않습니다** — 최종 홀드아웃으로 보존.
+- 같은 개체의 크롭이 fold를 걸치지 않으므로 누수 없는 추정치가 나옵니다.
+  클래스별 그룹 수가 k 미만이면 즉시 실패합니다(실데이터는 클래스당 수십 그룹이라 통과.
+  `dataset_sample`은 클래스당 1그룹이라 정당하게 실패 — 스모크는 `--group-key image` 사용).
+
+실행(Colab, 학습과 동일 인자를 그대로 넘김):
+```python
+!python cross_validate.py \
+    --data /content/crops --out /content/drive/MyDrive/doctor_green_training/cv \
+    --model convnext_tiny --img-size 384 --epochs 40 --batch-size 32
+```
+- `--dry-run`: fold 구성과 클래스×그룹 분포만 출력(학습 없음). 본 실행 전 확인 권장.
+- `--folds`: 기본 5.
+- 중단돼도 같은 명령을 다시 실행하면 완료된 fold(eval/summary.json 존재)는 건너뛰고
+  이어서 돕니다. `--out`을 Drive 아래에 두면 세션이 끊겨도 재개됩니다.
+
+비용(Colab): 학습 k회 = 단일 학습의 k배. L4 기준 k=5면 대략 2.5~5시간이고,
+조기종료가 걸리므로 보통 그 이하입니다. 시간이 부담이면 `--img-size 256`으로 낮춰
+경향만 먼저 확인하는 방법도 있습니다.
+
+보고 방법:
+- `cv_summary.json` / `cv_summary.csv`의 **전체 정확도 mean ± std**(min/max 포함)와
+  클래스별 F1 mean ± std로 보고합니다. fold별 val 그룹 수도 함께 기록돼 있어
+  불균형 여부를 같이 보여줄 수 있습니다.
+- test 홀드아웃은 교차검증과 별도로, 최종 모델 1개에 대해
+  `eval_classifier.py`(기본 `--split test`) 1회로 확인해 병기합니다.
+  교차검증 평균과 test 수치가 크게 어긋나면 split 구성부터 의심하세요.

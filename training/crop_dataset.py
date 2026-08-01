@@ -25,6 +25,20 @@
   - data.yaml 의 names(0:정상 1:역병 2:시들음병 3:잎끝마름 4:황화)를 그대로 폴더명으로 쓴다.
     이 순서는 배포 모델·앱 스키마와 묶여 있으므로 바꾸지 않는다.
 
+배경(무병징) 이미지 처리 — '정상' 클래스가 사라지지 않게 하는 핵심 로직
+  - prep_win.py 는 --allow-background(기본값)로 병징 bbox가 없는 이미지(주로 '정상' 클래스)를
+    빈 라벨(.txt 내용 없음)로 최종 트리에 포함시킨다. 하지만 그 시점의 원래 class_name 정보는
+    빈 라벨 파일 자체에는 남지 않는다.
+  - 그래서 이 스크립트는 빈 라벨 이미지를 만나면 AI Hub 원본 파일명 규칙
+    (예: "딸기_설향_정상_13_001_220925111738")에서 data.yaml names 값과 정확히 1개만
+    부분 문자열로 매칭되는 클래스명을 찾아 그 클래스로 복구한다(resolve_background_class).
+    매칭이 0개/2개 이상이면 저장하지 않고 background_skipped 로 집계해 로그·manifest.json 에 남긴다.
+  - 복구된 배경 이미지는 바운딩박스가 없으므로 중앙 정사각형을 크롭해 저장한다(save_background_crop),
+    파일명은 "{원본stem}__b0.jpg"(실제 박스 crop과 동일한 명명 규칙, cross_validate.py 의
+    group_key 복원 로직과 호환됨 — 빈 라벨 이미지는 애초에 실제 박스가 없으므로 __b0 충돌 없음).
+  - main() 끝에서 5개 클래스 각각 train/val 0장이면 exit 1로 강하게 실패한다(과거에는
+    전체 합계가 0일 때만 실패해, '정상'만 통째로 빠져도 exit 0로 조용히 통과했다).
+
 사용법:
     python crop_dataset.py --src dataset_sample --out /path/to/crops
     python crop_dataset.py --src dataset --out crops_out --margin 0.15 --min-size 24
@@ -148,7 +162,41 @@ def find_images(img_dir: Path):
             if p.is_file() and p.suffix.lower() in IMG_SUFFIXES]
 
 
-def crop_split(src: Path, out: Path, split: str, names: dict,
+def resolve_background_class(stem: str, class_names: list):
+    """
+    빈 라벨(배경/무병징) 이미지의 실제 클래스를 파일명에서 역추정한다.
+    prep_win.py 는 --allow-background(기본값)로 병징 bbox가 없는 이미지(특히 '정상' 클래스)를
+    빈 라벨로 최종 트리에 포함시키는데, 그 시점의 class_name 정보가 라벨 파일에는 남지 않는다.
+    대신 AI Hub 원본 파일명 규칙(예: "딸기_설향_정상_13_001_220925111738")에 클래스명이
+    그대로 들어있으므로, data.yaml 의 클래스명이 파일명에 부분 문자열로 정확히 1개만
+    매칭되면 그 클래스로 간주한다.
+    반환: (클래스명 또는 None, 사유: "ok"|"no_match"|"ambiguous")
+    """
+    matches = [c for c in class_names if c in stem]
+    if len(matches) == 1:
+        return matches[0], "ok"
+    if not matches:
+        return None, "no_match"
+    return None, "ambiguous"
+
+
+def save_background_crop(img_path: Path, dst: Path):
+    """
+    무병징(배경) 이미지는 바운딩박스가 없으므로 크롭 기준이 없다. 대신 이미지 중앙의
+    정사각형 영역을 저장한다(다른 클래스의 박스+마진 크롭과 스케일 감을 비슷하게 맞추기 위함).
+    """
+    with Image.open(img_path) as im:
+        im = im.convert("RGB")
+        W, H = im.size
+        side = min(W, H)
+        x1 = (W - side) // 2
+        y1 = (H - side) // 2
+        crop = im.crop((x1, y1, x1 + side, y1 + side))
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        crop.save(dst, "JPEG", quality=95)
+
+
+def crop_split(src: Path, out: Path, split: str, names: dict, class_names: list,
                margin: float, min_size: int, stats: dict):
     """한 split(train/val/test)의 모든 이미지에서 박스를 크롭해 저장."""
     img_dir = src / "images" / split
@@ -163,6 +211,25 @@ def crop_split(src: Path, out: Path, split: str, names: dict,
         txt_path = lbl_dir / (img_path.stem + ".txt")
         boxes = read_yolo_label(txt_path)
         if not boxes:
+            # 빈 라벨(배경/무병징) 이미지 — 파일명으로 원래 클래스를 역추정해 살린다.
+            # ('정상' 클래스는 애초에 병징 bbox가 없으므로 이 경로를 안 타면 crops/에서
+            #  통째로 사라져 5클래스 고정 인덱스 계약이 깨진다.)
+            cls_name, reason = resolve_background_class(img_path.stem, class_names)
+            if cls_name is None:
+                stats["background_skipped"] += 1
+                stats["background_skip_reason"][reason] += 1
+                continue
+            try:
+                dst_dir = out / split / cls_name
+                dst = dst_dir / f"{img_path.stem}__b0.jpg"
+                save_background_crop(img_path, dst)
+                n_crop += 1
+                stats["by_split"][split] += 1
+                stats["by_class"][cls_name][split] += 1
+                stats["background_resolved"] += 1
+            except Exception as e:  # noqa: BLE001
+                stats["read_error"] += 1
+                log(f"    [경고] 배경 이미지 처리 실패({img_path.name}): {e}")
             continue
         try:
             with Image.open(img_path) as im:
@@ -230,21 +297,27 @@ def main(argv=None):
 
     out.mkdir(parents=True, exist_ok=True)
 
+    class_names = [names[i] for i in sorted(names)]
     stats = {
         "by_split": defaultdict(int),
         "by_class": defaultdict(lambda: defaultdict(int)),
         "too_small": 0,
         "unknown_class": 0,
         "read_error": 0,
+        "background_resolved": 0,
+        "background_skipped": 0,
+        "background_skip_reason": defaultdict(int),
     }
 
     for split in ("train", "val", "test"):
-        crop_split(src, out, split, names, args.margin, args.min_size, stats)
+        crop_split(src, out, split, names, class_names, args.margin, args.min_size, stats)
 
-    # 매니페스트(JSON) — 클래스×split 카운트. train_classifier.py 의 클래스 가중치 참고용으로도 유용.
+    # 매니페스트(JSON) — 클래스×split 카운트 요약. 사람이 보는 참고용이며, 다른 스크립트가
+    # 프로그램적으로 읽지는 않는다(train_classifier.py 의 클래스 가중치는 ImageFolder가
+    # train 폴더를 직접 센 카운트로 계산한다).
     manifest = {
         "src": str(src),
-        "class_order": [names[i] for i in sorted(names)],
+        "class_order": class_names,
         "margin": args.margin,
         "min_size": args.min_size,
         "counts": {
@@ -256,6 +329,14 @@ def main(argv=None):
             "too_small": stats["too_small"],
             "unknown_class": stats["unknown_class"],
             "read_error": stats["read_error"],
+            "background_skipped": stats["background_skipped"],
+            "background_skip_reason": dict(stats["background_skip_reason"]),
+        },
+        "background": {
+            "resolved": stats["background_resolved"],
+            "skipped": stats["background_skipped"],
+            "note": "빈 라벨(무병징) 이미지는 파일명에서 클래스명을 역추정해 살렸다 "
+                    "(resolve_background_class). 매칭 실패분은 skipped/background_skip_reason 참조.",
         },
     }
     manifest_path = out / "manifest.json"
@@ -271,12 +352,14 @@ def main(argv=None):
     log(header)
     log("  " + "-" * (len(header) - 2))
     grand = 0
+    per_class_totals = {}
     for i in sorted(names):
         cls = names[i]
         sp = stats["by_class"].get(cls, {})
         tr, va, te = sp.get("train", 0), sp.get("val", 0), sp.get("test", 0)
         tot = tr + va + te
         grand += tot
+        per_class_totals[cls] = (tr, va, te)
         log(f"  {cls:>8} | {tr:>6} {va:>5} {te:>5} | {tot:>6}")
     log("  " + "-" * (len(header) - 2))
     log(f"  {'합계':>8} | {stats['by_split']['train']:>6} "
@@ -284,10 +367,42 @@ def main(argv=None):
     log("")
     log(f"  건너뜀: 작은박스 {stats['too_small']} | 알수없는클래스 {stats['unknown_class']} "
         f"| 읽기오류 {stats['read_error']}")
+    log(f"  배경(무병징) 이미지: 클래스 복구 {stats['background_resolved']}개 | "
+        f"복구 실패(건너뜀) {stats['background_skipped']}개"
+        + (f" (사유: {dict(stats['background_skip_reason'])})" if stats["background_skipped"] else ""))
+    if stats["background_skipped"] > 0:
+        log("  [주의] 배경 이미지 일부가 파일명 매칭 실패로 crops/ 에 포함되지 못했습니다. "
+            "위 사유별 건수를 확인하고, 필요하면 manifest.json 의 background 섹션을 검토하세요.")
     log(f"  매니페스트: {manifest_path}")
+
+    # 클래스별 0장 검사 — grand(전체 합계)가 0이 아니어도 특정 클래스만 0장이면
+    # train_classifier.py 의 ImageFolder 가 그 클래스 폴더를 아예 인식하지 못해
+    # 고정 클래스 인덱스(0:정상 1:역병 2:시들음병 3:잎끝마름 4:황화) 계약이 깨진다.
     if grand == 0:
-        log("\n[경고] 생성된 크롭이 0개입니다. 라벨/이미지 매칭을 확인하세요.")
+        log("\n[오류] 생성된 크롭이 0개입니다. 라벨/이미지 매칭을 확인하세요.")
         return 1
+
+    empty_train_or_val = [
+        (cls, tr, va, te) for cls, (tr, va, te) in per_class_totals.items()
+        if tr == 0 or va == 0
+    ]
+    if empty_train_or_val:
+        log("")
+        log("[오류] 다음 클래스는 train 또는 val 크롭이 0장입니다 — ImageFolder가 이 클래스")
+        log("       폴더 자체를 만들지 않아 학습이 4클래스(또는 그 이하)로 진행되며,")
+        log("       0:정상 1:역병 2:시들음병 3:잎끝마름 4:황화 고정 인덱스 계약이 깨집니다:")
+        for cls, tr, va, te in empty_train_or_val:
+            log(f"    {cls}: train {tr} / val {va} / test {te}")
+        log("       원인 점검: --src 데이터셋의 images/labels 매칭, prep_win.py 의 "
+            "--allow-background 설정, 파일명이 딸기_설향_<클래스명>_... 규칙을 따르는지.")
+        return 1
+
+    empty_test = [cls for cls, (tr, va, te) in per_class_totals.items() if te == 0]
+    if empty_test:
+        log("")
+        log(f"[주의] 다음 클래스는 test 크롭이 0장입니다(학습은 가능하나 eval_classifier.py "
+            f"--split test 결과에서 이 클래스 지표가 비어 보일 수 있음): {empty_test}")
+
     return 0
 
 

@@ -136,7 +136,30 @@ python prep_win.py --no-allow-background
 
 ---
 
-## 3. 결과를 Colab 학습으로 넘기기
+## 3. 결과를 다음 단계로 넘기기
+
+**확정된 방향은 ② 크롭 기반 분류기(convnext_tiny / tf_efficientnetv2_s)로 병명을 판정하는 것입니다.**
+YOLO 탐지기(`doctorgreen_yolo_map_boost.ipynb`)는 위치·개수·심각도용으로 병행 유지하는 별도 트랙이며
+병명 판정에는 쓰지 않습니다. 처음이라면 아래 [본선]만 따라가면 됩니다. 비개발자용 전체 단계별
+런북은 `training/RUNBOOK_다음단계.md`를 참고하세요.
+
+### [본선] 크롭 분류기로 넘기기 (병명 판정 — 지금 할 일)
+
+1. 이 PC(윈도우)에서 바로 크롭을 만듭니다. GPU가 필요 없고 Pillow만 있으면 됩니다.
+   ```
+   pip install pillow
+   python crop_dataset.py --src dataset --out crops
+   ```
+   출력되는 "크롭 데이터셋 요약" 표에서 **5개 클래스('정상' 포함)가 train/val/test 모두 0장이
+   아닌지** 반드시 확인하세요. `정상` 행이 0이면 그대로 다음 단계로 넘어가지 말고 먼저 원인을
+   확인하세요(배경 이미지 처리 로직이 아직 수정 중일 수 있습니다).
+2. 만들어진 `crops` 폴더를 zip으로 묶어 **Google Drive에 업로드**합니다(원본 `dataset`보다
+   훨씬 작으므로 원본은 굳이 올릴 필요가 없습니다).
+3. Colab에서 Drive 마운트 후 압축을 풀고, `training/README_CLASSIFIER.md` 3장의 순서
+   (`train_classifier.py` → `eval_classifier.py` → `export_classifier.py`)대로 실행합니다.
+   클래스 인덱스·앱 매핑 규칙도 그 문서 2장에 있습니다.
+
+### [병행] YOLO 탐지기로 넘기기 (위치·개수·심각도용 — 병명 판정 아님)
 
 1. 만들어진 `dataset` 폴더를 zip으로 압축합니다.
    - 윈도우 탐색기에서 `dataset` 폴더 우클릭 → **보내기 → 압축(ZIP) 폴더**.

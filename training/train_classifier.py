@@ -20,9 +20,19 @@
 학습이 쓴 실제 class_to_idx 를 함께 저장하고, eval/export 가 이를 그대로 사용한다.
 앱 배포 매핑은 export 단계에서 이 class 이름 리스트로 처리한다(README 참조).
 
+세션이 끊겼을 때(--resume) — Colab 무료 티어는 GPU 세션이 중간에 끊기는 일이 흔하다.
+매 에폭 last.pt 에 모델·옵티마이저·스케줄러·best_val/no_improve 상태를 함께 저장해 두므로,
+끊긴 뒤 --out 을 그대로 두고 --resume 플래그만 추가해 같은 명령을 다시 실행하면
+처음부터 다시 돌지 않고 중단된 에폭부터 이어서 학습한다(results.csv 도 이어서 기록).
+--out 을 Google Drive 아래에 두면 세션이 바뀌어도 last.pt 가 남아 있어 재개할 수 있다.
+
 사용법(실사용 예):
     python train_classifier.py --data /path/to/crops --out runs/cls_convnext \
         --model convnext_tiny --img-size 384 --epochs 40 --batch-size 32
+
+    # 세션이 끊긴 뒤 이어서 학습(위와 동일 --data/--out, --resume 만 추가):
+    python train_classifier.py --data /path/to/crops --out runs/cls_convnext \
+        --model convnext_tiny --img-size 384 --epochs 40 --batch-size 32 --resume
 
 스모크(맥/CPU)용 예:
     python train_classifier.py --data crops_smoke --out runs/smoke \
@@ -33,6 +43,7 @@ import argparse
 import csv
 import json
 import math
+import random
 import sys
 from pathlib import Path
 
@@ -148,8 +159,12 @@ def main(argv=None):
     p.add_argument("--device", default="auto", help="auto|cpu|cuda|mps")
     p.add_argument("--no-pretrained", action="store_true", help="사전학습 가중치 미사용(스모크/디버그)")
     p.add_argument("--seed", type=int, default=42)
+    p.add_argument("--resume", action="store_true",
+                   help="--out 안의 last.pt 가 있으면 옵티마이저/스케줄러/에폭 상태까지 이어서 "
+                        "학습한다. Colab 무료 세션이 끊긴 뒤 같은 명령으로 재실행할 때 사용.")
     args = p.parse_args(argv if argv is not None else sys.argv[1:])
 
+    random.seed(args.seed)
     torch.manual_seed(args.seed)
     data = Path(args.data).resolve()
     out = Path(args.out).resolve()
@@ -173,6 +188,21 @@ def main(argv=None):
         log(f"[오류] train 클래스가 {num_classes}개뿐입니다: {class_dirs}")
         return 2
 
+    # crop_dataset.py 가 남긴 manifest.json 에서 margin/min_size 를 읽어 ckpt 에 함께 실어 보낸다.
+    # (export_classifier.py 가 export_meta.json 에 서빙 재현용 크롭 전처리 메타데이터로 포함시킴)
+    crop_margin, crop_min_size = None, None
+    manifest_path = data / "manifest.json"
+    if manifest_path.exists():
+        try:
+            _manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            crop_margin = _manifest.get("margin")
+            crop_min_size = _manifest.get("min_size")
+        except Exception as e:
+            log(f"[경고] {manifest_path} 읽기 실패({e}) — crop margin/min_size 메타데이터 없이 진행합니다.")
+    else:
+        log(f"[안내] {manifest_path} 없음 — export_meta.json 의 crop_margin/crop_min_size 가 "
+            "비어 나갑니다(서빙 시 README 문서 기본값(margin 0.15, min_size 24px)을 가정해야 함).")
+
     model = timm.create_model(args.model, pretrained=not args.no_pretrained,
                               num_classes=num_classes)
     cfg = resolve_data_config({}, model=model)
@@ -183,6 +213,10 @@ def main(argv=None):
     train_tf, eval_tf = build_transforms(args.img_size, mean, std)
     train_ds = datasets.ImageFolder(str(train_dir), transform=train_tf)
     val_ds = datasets.ImageFolder(str(val_dir), transform=eval_tf) if val_dir.exists() else None
+    if val_ds is not None and val_ds.classes != train_ds.classes:
+        log(f"[오류] val 클래스({val_ds.classes}) != train 클래스({train_ds.classes}) — "
+            "라벨 인덱스가 어긋납니다. 크롭 수가 0인 클래스가 없는지 확인하세요.")
+        return 2
 
     # class_to_idx 저장 — eval/export 가 동일 매핑을 써야 함.
     class_to_idx = train_ds.class_to_idx
@@ -195,6 +229,11 @@ def main(argv=None):
 
     weights, counts = class_weights_from_counts(train_ds, num_classes)
     log(f"[클래스 가중치] counts={counts} -> weights={[round(w, 3) for w in weights.tolist()]}")
+    zero_classes = [idx_to_class[i] for i, c in enumerate(counts) if c == 0]
+    if zero_classes:
+        log(f"[경고] train 크롭이 0장인 클래스가 있습니다: {zero_classes} — 가중치 clamp(min=1.0) 덕분에 "
+            "에러 없이 진행되지만 이 클래스는 사실상 학습되지 않습니다. crop_dataset.py 로그/manifest.json 을 "
+            "확인해 '정상' 등 특정 클래스가 통째로 빠지지 않았는지 점검하세요.")
 
     pin = device.type == "cuda"
     train_loader = DataLoader(train_ds, batch_size=args.batch_size, shuffle=True,
@@ -210,16 +249,51 @@ def main(argv=None):
         optimizer, cosine_warmup_lambda(args.warmup_epochs, args.epochs))
     scaler = torch.amp.GradScaler("cuda") if use_amp else None
 
-    results_path = out / "results.csv"
-    with open(results_path, "w", newline="", encoding="utf-8") as f:
-        csv.writer(f).writerow(
-            ["epoch", "lr", "train_loss", "train_acc", "val_loss", "val_acc"])
-
+    # 재개(--resume) — Colab 무료 세션이 끊긴 뒤 같은 명령을 다시 실행했을 때 처음부터
+    # 다시 돌지 않도록, last.pt 에 저장해 둔 모델/옵티마이저/스케줄러/에폭 상태를 복원한다.
+    start_epoch = 0
     best_val = float("inf")
     best_epoch = -1
     no_improve = 0
+    last_path = out / "last.pt"
+    resumed = False
+    if args.resume:
+        if last_path.exists():
+            rckpt = torch.load(last_path, map_location=device, weights_only=False)
+            expected_classes = [idx_to_class[i] for i in range(num_classes)]
+            if rckpt.get("classes") != expected_classes:
+                log(f"[오류] {last_path} 의 클래스 순서({rckpt.get('classes')})가 "
+                    f"현재 crops 데이터셋({expected_classes})과 다릅니다 — 다른 --out 을 쓰거나 "
+                    "--resume 없이 새로 시작하세요(인덱스가 어긋나면 조용히 잘못된 모델이 나옵니다).")
+                return 2
+            model.load_state_dict(rckpt["state_dict"])
+            if rckpt.get("optimizer_state") is not None:
+                optimizer.load_state_dict(rckpt["optimizer_state"])
+            if rckpt.get("scheduler_state") is not None:
+                scheduler.load_state_dict(rckpt["scheduler_state"])
+            if use_amp and scaler is not None and rckpt.get("scaler_state") is not None:
+                scaler.load_state_dict(rckpt["scaler_state"])
+            start_epoch = rckpt.get("epoch", 0)
+            best_val = rckpt.get("best_val", float("inf"))
+            best_epoch = rckpt.get("best_epoch", -1)
+            no_improve = rckpt.get("no_improve", 0)
+            resumed = True
+            log(f"[재개] {last_path} 에서 epoch {start_epoch} 부터 이어서 학습합니다 "
+                f"(best_val={best_val:.4f}, best_epoch={best_epoch}, no_improve={no_improve}).")
+            if start_epoch >= args.epochs:
+                log(f"[안내] 저장된 epoch({start_epoch})이 --epochs({args.epochs}) 이상입니다 — "
+                    "더 돌 에폭이 없어 바로 종료합니다. --epochs 를 늘려서 다시 실행하세요.")
+        else:
+            log(f"[재개] --resume 이 지정됐지만 {last_path} 가 없어 처음부터 시작합니다.")
+
+    results_path = out / "results.csv"
+    if not (resumed and results_path.exists()):
+        with open(results_path, "w", newline="", encoding="utf-8") as f:
+            csv.writer(f).writerow(
+                ["epoch", "lr", "train_loss", "train_acc", "val_loss", "val_acc"])
+
     log("")
-    for epoch in range(args.epochs):
+    for epoch in range(start_epoch, args.epochs):
         lr_now = optimizer.param_groups[0]["lr"]
         tr_loss, tr_acc = run_epoch(model, train_loader, criterion, device,
                                     optimizer=optimizer, scaler=scaler, amp=use_amp)
@@ -238,6 +312,17 @@ def main(argv=None):
                 [epoch + 1, f"{lr_now:.6e}", f"{tr_loss:.6f}", f"{tr_acc:.6f}",
                  f"{va_loss:.6f}", f"{va_acc:.6f}"])
 
+        # 조기종료 기준: val loss (val 없으면 train loss). ckpt 저장 전에 먼저 판정해야
+        # best_val/no_improve 가 last.pt 에 정확한 재개 상태로 실린다.
+        monitor = va_loss if val_loader is not None and not math.isnan(va_loss) else tr_loss
+        improved = monitor < best_val - 1e-4
+        if improved:
+            best_val = monitor
+            best_epoch = epoch + 1
+            no_improve = 0
+        else:
+            no_improve += 1
+
         ckpt = {
             "model": args.model,
             "state_dict": model.state_dict(),
@@ -247,22 +332,24 @@ def main(argv=None):
             "mean": mean,
             "std": std,
             "epoch": epoch + 1,
+            "crop_margin": crop_margin,
+            "crop_min_size": crop_min_size,
+            # 아래는 --resume 용 상태(eval/export 스크립트는 위 필드만 읽으므로 무시해도 무방)
+            "optimizer_state": optimizer.state_dict(),
+            "scheduler_state": scheduler.state_dict(),
+            "scaler_state": scaler.state_dict() if scaler is not None else None,
+            "best_val": best_val,
+            "best_epoch": best_epoch,
+            "no_improve": no_improve,
         }
         torch.save(ckpt, out / "last.pt")
 
-        # 조기종료 기준: val loss (val 없으면 train loss)
-        monitor = va_loss if val_loader is not None and not math.isnan(va_loss) else tr_loss
-        if monitor < best_val - 1e-4:
-            best_val = monitor
-            best_epoch = epoch + 1
-            no_improve = 0
+        if improved:
             torch.save(ckpt, out / "best.pt")
             log(f"    -> best 갱신(monitor={monitor:.4f}) best.pt 저장")
-        else:
-            no_improve += 1
-            if no_improve >= args.patience:
-                log(f"    -> {args.patience}에폭 미개선, 조기종료")
-                break
+        elif no_improve >= args.patience:
+            log(f"    -> {args.patience}에폭 미개선, 조기종료")
+            break
 
     log("")
     log(f"[완료] best epoch {best_epoch} (monitor={best_val:.4f})")
