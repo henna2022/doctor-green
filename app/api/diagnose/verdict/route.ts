@@ -2,12 +2,26 @@ import { NextRequest, NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { getGuide } from "@/lib/cropGuide";
 import { inferWatering } from "@/lib/watering";
+import { supabase } from "@/lib/supabase";
 
 // LLM 호출은 최대 30초까지 기다림
 export const maxDuration = 30;
 
 // 요청 바디 크기 상한 (100KB)
 const MAX_BODY_BYTES = 100 * 1024;
+
+// 유료 LLM 호출이라 로그인 사용자당 시간당 상한을 둔다.
+// ponytail: 인스턴스별 메모리 카운터라 여러 인스턴스면 상한이 그만큼 늘어남. 정확한 한도가 필요하면 DB 카운터로.
+const HOURLY_LIMIT = 30;
+const usage = new Map<string, number[]>();
+function overLimit(userId: string): boolean {
+  const now = Date.now();
+  const recent = (usage.get(userId) ?? []).filter((t) => now - t < 3_600_000);
+  if (recent.length >= HOURLY_LIMIT) { usage.set(userId, recent); return true; }
+  recent.push(now);
+  usage.set(userId, recent);
+  return false;
+}
 
 // Anthropic 클라이언트 모듈 레벨 싱글톤 (키는 env에서 자동으로 읽음)
 const client = new Anthropic();
@@ -79,6 +93,16 @@ export async function POST(req: NextRequest) {
   // 키가 없으면 기능 자동 비활성 — 에러 로그 없이 조용히 503
   if (!process.env.ANTHROPIC_API_KEY) {
     return NextResponse.json({ disabled: true }, { status: 503 });
+  }
+
+  // 로그인한 사용자만 — 비로그인(둘러보기)은 기능 꺼짐으로 돌려 화면이 「AI 소견 꺼짐」으로 조용히 처리한다
+  const token = req.headers.get("authorization")?.replace(/^Bearer /i, "") ?? "";
+  const { data: auth } = token ? await supabase.auth.getUser(token) : { data: { user: null } };
+  if (!auth.user) {
+    return NextResponse.json({ disabled: true }, { status: 503 });
+  }
+  if (overLimit(auth.user.id)) {
+    return NextResponse.json({ error: "잠시 후 다시 시도해 주세요" }, { status: 429 });
   }
 
   // Content-Length 사전 체크 — 본문 버퍼링 전에 조기 차단

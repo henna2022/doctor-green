@@ -6,6 +6,7 @@ import { searchDodam } from "@/lib/dodam";
 import { getMyDevices, readSensors } from "@/lib/sensors";
 import { getDailyReport, DailyReport } from "@/lib/report";
 import { assessEnvironment } from "@/lib/cropGuide";
+import { supabase } from "@/lib/supabase";
 import {
   Stage,
   AnalyzingPhase,
@@ -150,9 +151,14 @@ export function useDiagnosis() {
           })()
         : null;
 
+      // AI 종합 소견은 로그인 사용자만(서버가 토큰 확인). 비로그인이면 서버가 disabled 로 답한다
+      const { data: { session } } = await supabase.auth.getSession();
       const res = await fetch("/api/diagnose/verdict", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: {
+          "Content-Type": "application/json",
+          ...(session ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
         signal,
         body: JSON.stringify({
           crop: body.crop,
